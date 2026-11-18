@@ -100,8 +100,12 @@ func TestWebFlow(t *testing.T) {
 	if resp.StatusCode != 200 || !strings.Contains(body, "Create secret gist") {
 		t.Fatalf("home: %d", resp.StatusCode)
 	}
-	if csp := resp.Header.Get("Content-Security-Policy"); !strings.Contains(csp, "script-src 'self'") {
+	if csp := resp.Header.Get("Content-Security-Policy"); !strings.Contains(csp, "script-src 'self' https://inspect.uug.ai;") ||
+		!strings.Contains(csp, "connect-src 'self' https://inspect.uug.ai;") {
 		t.Fatalf("CSP %q", csp)
+	}
+	if !strings.Contains(body, "/-/assets/inspect-loader.js?v=") {
+		t.Error("home lacks the inspect loader")
 	}
 
 	resp, _ = do(t, c, "POST", ts.URL+"/", formType, form(url.Values{
@@ -495,10 +499,11 @@ func TestRateLimit(t *testing.T) {
 func TestAssetsAndRobots(t *testing.T) {
 	ts, _ := newTestServer(t, Config{})
 	for path, want := range map[string]string{
-		"/-/assets/style.css":  "--primary",
-		"/-/assets/app.js":     "gist.uug.ai",
-		"/-/assets/chroma.css": ".chroma",
-		"/robots.txt":          "Disallow: /",
+		"/-/assets/style.css":         "--primary",
+		"/-/assets/app.js":            "gist.uug.ai",
+		"/-/assets/chroma.css":        ".chroma",
+		"/-/assets/inspect-loader.js": "uug.lol",
+		"/robots.txt":                 "Disallow: /",
 	} {
 		resp, body := do(t, http.DefaultClient, "GET", ts.URL+path, "", nil, false)
 		if resp.StatusCode != 200 || !strings.Contains(body, want) {
