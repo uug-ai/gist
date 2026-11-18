@@ -12,6 +12,7 @@ import (
 	"html/template"
 	"io/fs"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -137,6 +138,34 @@ func (s *Server) routes() http.Handler {
 	return s.logRequests(securityHeaders(cop.Handler(mux)))
 }
 
+// inspectOrigin serves the inspect bug report tool (see securityHeaders).
+const inspectOrigin = "https://inspect.uug.ai"
+
+// Content-Security-Policy values. Staging (uug.lol hosts) also allows what
+// static/inspect-loader.js needs to run the bug report tool from
+// inspect.uug.ai: its script and API, the <style> and style attributes of its
+// overlay, and its screenshots (data:, blob:) and recordings (blob:).
+// Production keeps the strict policy: inspect never loads there.
+const (
+	cspProduction = "default-src 'none'; script-src 'self'; style-src 'self'; " +
+		"img-src 'self' data: https:; font-src 'self'; connect-src 'self'; form-action 'self'; " +
+		"base-uri 'none'; frame-ancestors 'none'"
+	cspStaging = "default-src 'none'; script-src 'self' " + inspectOrigin + "; " +
+		"style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src blob:; " +
+		"font-src 'self'; connect-src 'self' " + inspectOrigin + "; form-action 'self'; " +
+		"base-uri 'none'; frame-ancestors 'none'"
+)
+
+// stagingHost reports whether host (optionally with a port) is uug.lol or a
+// subdomain of it, matching the check in static/inspect-loader.js.
+func stagingHost(host string) bool {
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	host = strings.ToLower(strings.TrimSuffix(host, "."))
+	return host == "uug.lol" || strings.HasSuffix(host, ".uug.lol")
+}
+
 // securityHeaders sets headers every response gets. Pages are never indexed:
 // gists are unlisted.
 func securityHeaders(next http.Handler) http.Handler {
@@ -145,9 +174,11 @@ func securityHeaders(next http.Handler) http.Handler {
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Referrer-Policy", "same-origin")
 		h.Set("X-Robots-Tag", "noindex, nofollow")
-		h.Set("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self'; "+
-			"img-src 'self' data: https:; font-src 'self'; connect-src 'self'; form-action 'self'; "+
-			"base-uri 'none'; frame-ancestors 'none'")
+		if stagingHost(r.Host) {
+			h.Set("Content-Security-Policy", cspStaging)
+		} else {
+			h.Set("Content-Security-Policy", cspProduction)
+		}
 		h.Set("Cross-Origin-Opener-Policy", "same-origin")
 		next.ServeHTTP(w, r)
 	})

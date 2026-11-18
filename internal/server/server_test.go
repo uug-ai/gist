@@ -100,8 +100,11 @@ func TestWebFlow(t *testing.T) {
 	if resp.StatusCode != 200 || !strings.Contains(body, "Create secret gist") {
 		t.Fatalf("home: %d", resp.StatusCode)
 	}
-	if csp := resp.Header.Get("Content-Security-Policy"); !strings.Contains(csp, "script-src 'self'") {
-		t.Fatalf("CSP %q", csp)
+	if csp := resp.Header.Get("Content-Security-Policy"); csp != cspProduction {
+		t.Fatalf("CSP %q, want the production policy", csp)
+	}
+	if !strings.Contains(body, "/-/assets/inspect-loader.js?v=") {
+		t.Error("home lacks the inspect loader")
 	}
 
 	resp, _ = do(t, c, "POST", ts.URL+"/", formType, form(url.Values{
@@ -495,10 +498,11 @@ func TestRateLimit(t *testing.T) {
 func TestAssetsAndRobots(t *testing.T) {
 	ts, _ := newTestServer(t, Config{})
 	for path, want := range map[string]string{
-		"/-/assets/style.css":  "--primary",
-		"/-/assets/app.js":     "gist.uug.ai",
-		"/-/assets/chroma.css": ".chroma",
-		"/robots.txt":          "Disallow: /",
+		"/-/assets/style.css":         "--primary",
+		"/-/assets/app.js":            "gist.uug.ai",
+		"/-/assets/chroma.css":        ".chroma",
+		"/-/assets/inspect-loader.js": "uug.lol",
+		"/robots.txt":                 "Disallow: /",
 	} {
 		resp, body := do(t, http.DefaultClient, "GET", ts.URL+path, "", nil, false)
 		if resp.StatusCode != 200 || !strings.Contains(body, want) {
@@ -508,5 +512,31 @@ func TestAssetsAndRobots(t *testing.T) {
 	resp, _ := do(t, http.DefaultClient, "GET", ts.URL+"/-/assets/missing.css", "", nil, false)
 	if resp.StatusCode != 404 {
 		t.Errorf("missing asset: %d", resp.StatusCode)
+	}
+}
+
+func TestSecurityHeadersStaging(t *testing.T) {
+	h := securityHeaders(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	for host, want := range map[string]string{
+		"gist.uug.lol":     cspStaging,
+		"GIST.UUG.LOL:443": cspStaging,
+		"uug.lol":          cspStaging,
+		"gist.uug.ai":      cspProduction,
+		"evil-uug.lol":     cspProduction,
+		"uug.lol.evil.com": cspProduction,
+		"localhost:8080":   cspProduction,
+	} {
+		r := httptest.NewRequest("GET", "/", nil)
+		r.Host = host
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		if got := w.Header().Get("Content-Security-Policy"); got != want {
+			t.Errorf("%s: CSP %q, want %q", host, got, want)
+		}
+	}
+	if !strings.Contains(cspStaging, "script-src 'self' https://inspect.uug.ai;") ||
+		!strings.Contains(cspStaging, "connect-src 'self' https://inspect.uug.ai;") ||
+		strings.Contains(cspProduction, "inspect") || strings.Contains(cspProduction, "unsafe-inline") {
+		t.Error("staging policy must allow inspect; production must not")
 	}
 }
