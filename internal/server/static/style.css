@@ -150,7 +150,6 @@ p { margin: 0 0 12px; }
 /* Footer (as on draw.uug.ai) */
 .footer { border-top: 1px solid var(--border); }
 .footer-inner { max-width: var(--layout-max-width); margin: auto; padding: 28px var(--layout-gutter); display: flex; align-items: center; gap: 20px; color: var(--muted); font-size: 12px; }
-.footer-inner > .brand { margin-right: auto; }
 .footer-inner a { color: inherit; }
 .footer-inner a:hover { color: var(--primary); text-decoration: none; }
 .footer-version { font-family: var(--font-mono); font-size: 11px; }
@@ -252,12 +251,12 @@ p code { padding: 1px 5px; border-radius: 5px; background: var(--surface-strong)
 .file-meta { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .file-head .spacer { flex: 1 1 0; }
 .file-head .btn { flex: none; }
-.code { overflow-x: auto; }
+.code { overflow-x: auto; padding: 16px 0; }
 
 /* Chroma output */
 /* The card is the background; chroma's own (scoped by theme, so more specific) would differ. */
 .code .chroma { background: transparent !important; margin: 0; }
-.code .lntable { border-spacing: 0; padding: 16px 0; width: 100%; }
+.code .lntable { border-spacing: 0; padding: 0; width: 100%; }
 .code .lntd { vertical-align: top; padding: 0; }
 .code .lntd:first-child { width: 1%; }
 .code pre { margin: 0; font-size: 13px; line-height: 1.55; tab-size: 4; }
