@@ -4,6 +4,7 @@ package server
 
 import (
 	"crypto/sha256"
+	"crypto/subtle"
 	"embed"
 	"encoding/hex"
 	"errors"
@@ -37,6 +38,9 @@ type Config struct {
 	RateLimit int
 	// TrustProxy reads the client address from X-Real-IP / X-Forwarded-For.
 	TrustProxy bool
+	// AdminToken, when set, works as the edit key of every gist, so abusive
+	// public gists can be taken down. It must be at least 32 characters.
+	AdminToken string
 	Version    string
 	Logger     *slog.Logger
 }
@@ -60,6 +64,9 @@ func New(cfg Config, st *store.Store) (*Server, error) {
 		cfg.Limits = store.DefaultLimits
 	}
 	cfg.PublicURL = strings.TrimSuffix(cfg.PublicURL, "/")
+	if cfg.AdminToken != "" && len(cfg.AdminToken) < 32 {
+		return nil, errors.New("the admin token must be at least 32 characters")
+	}
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default()
 	}
@@ -97,6 +104,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /-/assets/{path...}", s.asset)
 
 	mux.HandleFunc("GET /{$}", s.newGist)
+	mux.HandleFunc("GET /discover", s.discover)
 	mux.HandleFunc("POST /{$}", s.create)
 	mux.HandleFunc("PUT /{$}", s.put)
 	mux.HandleFunc("PUT /{name}", s.put)
@@ -174,9 +182,29 @@ func (s *Server) healthz(w http.ResponseWriter, _ *http.Request) {
 	fmt.Fprintln(w, "ok")
 }
 
+// robots lets crawlers reach Discover and public gists. Secret gists are only
+// linked from where their owners share them, and their pages say noindex.
 func (s *Server) robots(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	fmt.Fprint(w, "User-agent: *\nAllow: /$\nDisallow: /\n")
+	fmt.Fprint(w, `User-agent: *
+Disallow: /api/
+Disallow: /*/raw/
+Disallow: /*/revisions
+Disallow: /*/archive.zip
+Disallow: /*/edit
+Disallow: /*/claim
+`)
+}
+
+// authorized reports whether token may change the gist: its edit key, or
+// the admin token.
+func (s *Server) authorized(m *store.Meta, token string) bool {
+	return store.Authorized(m, token) || s.isAdmin(token)
+}
+
+func (s *Server) isAdmin(token string) bool {
+	return s.cfg.AdminToken != "" && token != "" &&
+		subtle.ConstantTimeCompare([]byte(token), []byte(s.cfg.AdminToken)) == 1
 }
 
 func (s *Server) favicon(w http.ResponseWriter, r *http.Request) {

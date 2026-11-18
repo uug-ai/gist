@@ -4,6 +4,8 @@
     <div class="gist-title">
       <h1>{{if .Description}}{{.Description}}{{else}}{{.Title}}{{end}}</h1>
       <p class="meta muted">
+        {{if .Public}}<span class="badge badge-public" title="Listed on Discover; anyone can find it">{{template "icon-globe"}}Public</span>
+        {{else}}<span class="badge badge-secret" title="Not listed; only people with the link can see it">{{template "icon-lock"}}Secret</span>{{end}}
         Created <time datetime="{{iso .CreatedAt}}" title="{{iso .CreatedAt}}">{{ago .CreatedAt}}</time>
         {{if ne .Latest 1}} · updated <time datetime="{{iso .UpdatedAt}}" title="{{iso .UpdatedAt}}">{{ago .UpdatedAt}}</time>{{end}}
         · <a href="/{{.ID}}/revisions">{{plural .Latest "revision" "revisions"}}</a>
@@ -27,3 +29,7 @@
   </div>
 </section>
 {{end}}
+
+{{define "icon-lock"}}<svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M4 7V5a4 4 0 1 1 8 0v2h.5A1.5 1.5 0 0 1 14 8.5v5A1.5 1.5 0 0 1 12.5 15h-9A1.5 1.5 0 0 1 2 13.5v-5A1.5 1.5 0 0 1 3.5 7H4Zm1.5 0h5V5a2.5 2.5 0 0 0-5 0v2Z"/></svg>{{end}}
+
+{{define "icon-globe"}}<svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM5.78 8.75a9.64 9.64 0 0 0 1.36 4.97c.29.04.57.04.86 0a9.64 9.64 0 0 0 1.36-4.97H5.78Zm4.94 0a11.1 11.1 0 0 1-.97 4.57 6.5 6.5 0 0 0 3.7-4.57h-2.73Zm-7.44 0a6.5 6.5 0 0 0 3.7 4.57 11.1 11.1 0 0 1-.97-4.57H3.28Zm6.94-1.5a9.64 9.64 0 0 0-1.36-4.97 6.6 6.6 0 0 0-.86 0 9.64 9.64 0 0 0-1.36 4.97h3.58Zm1.5 0h2.73a6.5 6.5 0 0 0-3.7-4.57c.61 1.38.95 2.93.97 4.57Zm-7.44 0c.02-1.64.36-3.19.97-4.57a6.5 6.5 0 0 0-3.7 4.57h2.73Z"/></svg>{{end}}

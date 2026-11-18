@@ -2,15 +2,15 @@
 
 gist.uug.ai lets anyone share code and text snippets with one click, in the
 spirit of [GitHub Gist](https://gist.github.com). This plan compares the two,
-says what the first release (v1) does and what comes later.
+says what gist.uug.ai does today and what comes later.
 
 ## Principles
 
 - **One click, no account.** Paste, press *Create gist*, share the link. From a
   terminal: `curl -T main.go https://gist.uug.ai`.
-- **Unlisted by default.** Every gist gets an unguessable 128-bit id, like
-  GitHub's secret gists. Nothing is listed or indexed, so the service is not
-  attractive for spam.
+- **Secret by default, public by choice.** As on GitHub, every gist is
+  *secret* unless you choose *public*: an unguessable 128-bit link, not
+  listed, `noindex`. Public gists are listed on Discover and may be indexed.
 - **Ownership by key, not by login.** Creating a gist returns an *edit key*.
   The browser keeps it in a cookie scoped to that gist; API and terminal users
   keep it themselves. Anyone with the key can edit or delete the gist.
@@ -20,11 +20,14 @@ says what the first release (v1) does and what comes later.
 
 ## Feature comparison
 
-| GitHub Gist | gist.uug.ai v1 | Notes |
+| GitHub Gist | gist.uug.ai | Notes |
 |---|---|---|
 | Create a gist with a description and several files | Yes | Up to 20 files, 1 MiB per revision. Empty filenames become `gistfile1.txt`, … |
-| Secret gists (unlisted, anyone with the link) | Yes, the only kind | 32-hex-character ids. `noindex` on every page. |
-| Public gists and *Discover* | Later | Needs sign-in and moderation first. |
+| Secret gists (unlisted, anyone with the link) | Yes, the default | *Create secret gist* is the primary button, as on GitHub. 32-hex-character ids, `noindex`, never on Discover. |
+| Public gists | Yes | *Create public gist*, `-F public=true`, or `"public": true`. Indexable at `/{id}`; revision pages stay `noindex`. |
+| *Discover* (newest public gists) | Yes | `/discover`, 20 per page with a preview of the first file. |
+| Change visibility | Yes, both ways | GitHub only lets a secret gist become public. Here the owner can also make a public gist secret again; it leaves Discover, but copies made meanwhile may remain. No new revision. |
+| Forks keep the source's visibility | Yes | |
 | Syntax highlighting by file extension | Yes | Server-side with [chroma](https://github.com/alecthomas/chroma), 250+ languages, light and dark. |
 | Rendered Markdown | Yes | GFM via [goldmark](https://github.com/yuin/goldmark); raw HTML is dropped, links get `nofollow ugc`. |
 | Line numbers and line links (`#file-x-L10`) | Yes | |
@@ -40,8 +43,9 @@ says what the first release (v1) does and what comes later.
 | Expiry | Yes (new) | Optional: 1 hour, 1 day, 1 week, 30 days. |
 | Embed (`<script src=….js>`) | Later | |
 | Clone / push over git | Later | |
-| Accounts, profile pages, stars, comments | Later | Sign in with GitHub, like calendar.uug.ai. |
-| Search | Later | Only meaningful with public gists. |
+| Accounts, profile pages, stars, comments | Later | Sign in with GitHub, like calendar.uug.ai. Without accounts, "Your gists" lists the gists created in this browser. |
+| Search | Later | Over public gists. |
+| Reporting abuse | Later | Today: `GIST_ADMIN_TOKEN` works as every gist's edit key, so moderators can delete public gists via the API or the edit-key page. |
 
 ## Abuse and safety
 
@@ -52,6 +56,9 @@ says what the first release (v1) does and what comes later.
   for outbound links so secret URLs don't leak, raw files sandboxed with
   `nosniff`, cross-origin form posts rejected (`http.CrossOriginProtection`).
 - Edit keys are 256-bit random values; only their SHA-256 is stored.
+- Public gists: links in rendered Markdown get `rel="nofollow ugc"`, so
+  spamming Discover earns no search ranking. Moderators can take a gist down
+  with the optional `GIST_ADMIN_TOKEN` (at least 32 characters).
 
 ## Architecture
 
@@ -66,11 +73,12 @@ internal/server         routes, templates, static assets, rate limit, API
 Storage layout on the volume (`GIST_DATA_DIR`, default `/data`):
 
 ```
-gists/<id[0:2]>/<id>/meta.json     description, timestamps, key hash, revision list
+gists/<id[0:2]>/<id>/meta.json     description, visibility, timestamps, key hash, revision list
 gists/<id[0:2]>/<id>/r<N>.json     the files of revision N
 ```
 
-Writes go to a temp file and are renamed into place. One replica, `Recreate`
+Writes go to a temp file and are renamed into place. The Discover index of
+public gists is kept in memory and rebuilt from the metadata at startup. One replica, `Recreate`
 strategy, on a Longhorn volume (the same pattern as calendar).
 
 ## Delivery
@@ -90,5 +98,5 @@ strategy, on a Longhorn volume (the same pattern as calendar).
 ## Later
 
 1. Sign in with GitHub; gists owned by accounts, a "Your gists" page across devices.
-2. Public gists, Discover and search, with reporting and moderation.
+2. Search over public gists, a "Report" link and a moderation view.
 3. Embeds, then git clone.

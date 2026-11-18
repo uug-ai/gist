@@ -158,11 +158,15 @@ func loadConfig(env func(string) string) (config, error) {
 			Limits:     limits,
 			RateLimit:  int(integer("GIST_RATE_LIMIT", 30)),
 			TrustProxy: boolean("GIST_TRUST_PROXY"),
+			AdminToken: get("GIST_ADMIN_TOKEN", ""),
 			Version:    version,
 		},
 	}
 	if limits.MaxBytes < 1 || limits.MaxFiles < 1 {
 		errs = append(errs, errors.New("GIST_MAX_BYTES and GIST_MAX_FILES must be at least 1"))
+	}
+	if t := cfg.server.AdminToken; t != "" && len(t) < 32 {
+		errs = append(errs, errors.New("GIST_ADMIN_TOKEN must be at least 32 characters"))
 	}
 	if u := cfg.server.PublicURL; u != "" && !strings.HasPrefix(u, "http://") && !strings.HasPrefix(u, "https://") {
 		errs = append(errs, errors.New("GIST_PUBLIC_URL must start with http:// or https://"))
@@ -236,7 +240,7 @@ func runSelfTest(logger *slog.Logger) error {
 	if _, _, err := expect(get("/healthz", ""), http.StatusOK, "ok"); err != nil {
 		return err
 	}
-	if _, _, err := expect(get("/", "text/html"), http.StatusOK, "Create gist"); err != nil {
+	if _, _, err := expect(get("/", "text/html"), http.StatusOK, "Create secret gist"); err != nil {
 		return err
 	}
 	const source = "package main\n\nfunc main() { println(\"self-test\") }\n"

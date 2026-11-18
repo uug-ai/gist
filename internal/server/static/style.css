@@ -194,6 +194,22 @@ p { margin: 0 0 12px; }
 .badge-added { background: var(--success-bg); color: var(--success-text); }
 .badge-deleted { background: var(--danger-bg); color: var(--danger-text); }
 .badge-modified, .badge-renamed { background: var(--info-bg); color: var(--info-text); }
+.badge-secret, .badge-public { display: inline-flex; align-items: center; gap: 4px; vertical-align: 1px; margin-right: 4px; border: 1px solid var(--border); background: transparent; color: var(--muted); }
+.badge-public { color: var(--info-text); border-color: color-mix(in srgb, var(--info-text) 35%, transparent); }
+.icon { width: 13px; height: 13px; flex: none; }
+.btn .icon { width: 14px; height: 14px; }
+
+/* Discover */
+.discover-item { margin-bottom: 16px; overflow: hidden; }
+.discover-title { font-family: var(--font-heading); font-weight: 600; font-size: 15px; color: var(--text); overflow-wrap: anywhere; min-width: 0; }
+.discover-title:hover { color: var(--primary); text-decoration: none; }
+.discover-item .file-meta { margin-left: auto; }
+.discover-preview { display: block; color: inherit; position: relative; }
+.discover-preview:hover { text-decoration: none; }
+.discover-preview .markdown-body { max-height: 260px; overflow: hidden; }
+.discover-more { display: block; padding: 6px 16px 10px; font-size: 12px; font-weight: 600; color: var(--primary); border-top: 1px dashed var(--border); }
+.empty { padding: 28px; text-align: center; }
+.pager { display: flex; align-items: center; justify-content: center; gap: 16px; margin-top: 24px; }
 
 /* New / edit form */
 .hero { margin-bottom: 20px; }
