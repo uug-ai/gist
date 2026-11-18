@@ -8,6 +8,7 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -25,11 +26,15 @@ type pageData struct {
 	Assets  string
 	Version string
 	Page    string
+	// Indexable pages may appear in search results: the home page,
+	// Discover and the latest version of a public gist.
+	Indexable bool
 
-	Form  *formData
-	Gist  *gistView
-	Revs  []revView
-	Claim *claimData
+	Form     *formData
+	Gist     *gistView
+	Revs     []revView
+	Claim    *claimData
+	Discover *discoverData
 }
 
 type formData struct {
@@ -37,6 +42,7 @@ type formData struct {
 	ID          string
 	Description string
 	Expires     string
+	Public      bool
 	Files       []store.File
 	Error       string
 	MaxFiles    int
@@ -52,6 +58,7 @@ type gistView struct {
 	UpdatedAt   time.Time
 	ExpiresAt   *time.Time
 	ForkOf      string
+	Public      bool
 	Rev         int
 	Latest      int
 	IsLatest    bool
@@ -166,7 +173,7 @@ func plural(n int, unit string) string {
 
 func parseTemplates() (map[string]*template.Template, error) {
 	pages := map[string]*template.Template{}
-	for _, name := range []string{"new", "gist", "revisions", "claim", "error"} {
+	for _, name := range []string{"new", "gist", "revisions", "claim", "error", "discover"} {
 		t, err := template.New(name).Funcs(funcs).ParseFS(templateFS, "templates/layout.html", "templates/partials.html", "templates/"+name+".html")
 		if err != nil {
 			return nil, err
@@ -206,7 +213,8 @@ func (s *Server) emptyForm() *formData {
 }
 
 func (s *Server) newGist(w http.ResponseWriter, r *http.Request) {
-	s.render(w, r, "new", pageData{Title: "New gist", Form: s.emptyForm()})
+	w.Header().Del("X-Robots-Tag")
+	s.render(w, r, "new", pageData{Title: "New gist", Form: s.emptyForm(), Indexable: true})
 }
 
 // readForm reads the web form: description, expires and parallel filename
@@ -219,6 +227,7 @@ func (s *Server) readForm(w http.ResponseWriter, r *http.Request) (*formData, er
 	f := s.emptyForm()
 	f.Description = r.PostForm.Get("description")
 	f.Expires = r.PostForm.Get("expires")
+	f.Public = isPublic(r.PostForm)
 	names, contents := r.PostForm["filename"], r.PostForm["content"]
 	f.Files = nil
 	for i, c := range contents {
@@ -234,23 +243,47 @@ func (s *Server) readForm(w http.ResponseWriter, r *http.Request) (*formData, er
 	return f, nil
 }
 
+// isPublic reads the visibility a client asked for: the web form's
+// visibility=public button, or public=true from curl and scripts. Anything
+// else is secret, the default.
+func isPublic(v url.Values) bool {
+	if v.Get("visibility") == "public" {
+		return true
+	}
+	switch strings.ToLower(v.Get("public")) {
+	case "1", "true", "yes", "on":
+		return true
+	}
+	return false
+}
+
+// upload is a gist sent by a terminal client (or a fork).
+type upload struct {
+	description string
+	expires     string
+	files       []store.File
+	forkOf      string
+	public      bool
+}
+
 // readUploads reads files sent with curl -F file=@name (multipart).
-func (s *Server) readUploads(w http.ResponseWriter, r *http.Request) (desc, expires string, files []store.File, err error) {
+func (s *Server) readUploads(w http.ResponseWriter, r *http.Request) (upload, error) {
 	r.Body = http.MaxBytesReader(w, r.Body, int64(s.cfg.Limits.MaxBytes)+64<<10)
 	if err := r.ParseMultipartForm(int64(s.cfg.Limits.MaxBytes) + 64<<10); err != nil {
-		return "", "", nil, fmt.Errorf("The upload is too large or malformed (at most %s).", store.HumanBytes(int64(s.cfg.Limits.MaxBytes)))
+		return upload{}, fmt.Errorf("The upload is too large or malformed (at most %s).", store.HumanBytes(int64(s.cfg.Limits.MaxBytes)))
 	}
 	defer r.MultipartForm.RemoveAll()
+	var files []store.File
 	for _, field := range []string{"file", "files", "f"} {
 		for _, fh := range r.MultipartForm.File[field] {
 			fp, err := fh.Open()
 			if err != nil {
-				return "", "", nil, err
+				return upload{}, err
 			}
 			data, err := io.ReadAll(fp)
 			fp.Close()
 			if err != nil {
-				return "", "", nil, err
+				return upload{}, err
 			}
 			files = append(files, store.File{Name: fh.Filename, Content: string(data)})
 		}
@@ -259,7 +292,12 @@ func (s *Server) readUploads(w http.ResponseWriter, r *http.Request) (desc, expi
 	if c := r.FormValue("content"); c != "" {
 		files = append(files, store.File{Name: r.FormValue("filename"), Content: c})
 	}
-	return r.FormValue("description"), r.FormValue("expires"), files, nil
+	return upload{
+		description: r.FormValue("description"),
+		expires:     r.FormValue("expires"),
+		files:       files,
+		public:      isPublic(r.MultipartForm.Value),
+	}, nil
 }
 
 func (s *Server) create(w http.ResponseWriter, r *http.Request) {
@@ -268,12 +306,12 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request) {
 	}
 	mt, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	if mt == "multipart/form-data" {
-		desc, expires, files, err := s.readUploads(w, r)
+		u, err := s.readUploads(w, r)
 		if err != nil {
 			s.fail(w, r, http.StatusBadRequest, err.Error())
 			return
 		}
-		s.createAndRespond(w, r, desc, expires, files, "")
+		s.createAndRespond(w, r, u)
 		return
 	}
 	f, err := s.readForm(w, r)
@@ -282,7 +320,7 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !wantsHTML(r) {
-		s.createAndRespond(w, r, f.Description, f.Expires, f.Files, "")
+		s.createAndRespond(w, r, upload{description: f.Description, expires: f.Expires, files: f.Files, public: f.Public})
 		return
 	}
 	expiresIn, err := parseExpiry(f.Expires)
@@ -301,7 +339,7 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request) {
 		s.storeError(w, r, err)
 		return
 	}
-	m, token, err := s.store.Create(store.CreateInput{Description: desc, Files: files, ExpiresIn: expiresIn})
+	m, token, err := s.store.Create(store.CreateInput{Description: desc, Files: files, ExpiresIn: expiresIn, Public: f.Public})
 	if err != nil {
 		s.storeError(w, r, err)
 		return
@@ -312,33 +350,35 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request) {
 
 // createAndRespond creates a gist for a terminal client and answers with its
 // URL; the edit key is in the Gist-Edit-Key header.
-func (s *Server) createAndRespond(w http.ResponseWriter, r *http.Request, desc, expires string, files []store.File, forkOf string) {
-	expiresIn, err := parseExpiry(expires)
+func (s *Server) createAndRespond(w http.ResponseWriter, r *http.Request, u upload) {
+	expiresIn, err := parseExpiry(u.expires)
 	if err != nil {
 		s.fail(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
-	desc, files, err = store.Normalize(desc, files, s.cfg.Limits)
+	desc, files, err := store.Normalize(u.description, u.files, s.cfg.Limits)
 	if err != nil {
 		s.storeError(w, r, err)
 		return
 	}
-	m, token, err := s.store.Create(store.CreateInput{Description: desc, Files: files, ExpiresIn: expiresIn, ForkOf: forkOf})
+	m, token, err := s.store.Create(store.CreateInput{
+		Description: desc, Files: files, ExpiresIn: expiresIn, ForkOf: u.forkOf, Public: u.public,
+	})
 	if err != nil {
 		s.storeError(w, r, err)
 		return
 	}
-	u := s.baseURL(r) + gistPath(m.ID)
+	link := s.baseURL(r) + gistPath(m.ID)
 	if wantsHTML(r) {
 		s.setOwner(w, r, m.ID, token)
 		http.Redirect(w, r, gistPath(m.ID)+"?created=1", http.StatusSeeOther)
 		return
 	}
-	w.Header().Set("Location", u)
+	w.Header().Set("Location", link)
 	w.Header().Set("Gist-Edit-Key", token)
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusCreated)
-	fmt.Fprintln(w, u)
+	fmt.Fprintln(w, link)
 }
 
 // put handles curl -T file https://gist.uug.ai/ (PUT /file).
@@ -361,7 +401,12 @@ func (s *Server) put(w http.ResponseWriter, r *http.Request) {
 	if n := q.Get("filename"); n != "" {
 		name = n
 	}
-	s.createAndRespond(w, r, q.Get("description"), q.Get("expires"), []store.File{{Name: name, Content: string(data)}}, "")
+	s.createAndRespond(w, r, upload{
+		description: q.Get("description"),
+		expires:     q.Get("expires"),
+		files:       []store.File{{Name: name, Content: string(data)}},
+		public:      isPublic(q),
+	})
 }
 
 // load reads a gist and the requested revision (the latest when the route
@@ -399,7 +444,14 @@ func (s *Server) view(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	g := s.gistView(r, m, rev)
-	s.render(w, r, "gist", pageData{Title: g.Title, Gist: g})
+	// Search engines may index a public gist at its own URL; secret gists
+	// and /revisions/N pages (old versions, or duplicates of the latest)
+	// stay out.
+	indexable := m.Public && r.PathValue("rev") == ""
+	if indexable {
+		w.Header().Del("X-Robots-Tag")
+	}
+	s.render(w, r, "gist", pageData{Title: g.Title, Gist: g, Indexable: indexable})
 }
 
 func (s *Server) gistView(r *http.Request, m *store.Meta, rev *store.Revision) *gistView {
@@ -412,6 +464,7 @@ func (s *Server) gistView(r *http.Request, m *store.Meta, rev *store.Revision) *
 		UpdatedAt:   m.UpdatedAt,
 		ExpiresAt:   m.ExpiresAt,
 		ForkOf:      m.ForkOf,
+		Public:      m.Public,
 		Rev:         rev.Number,
 		Latest:      m.Latest(),
 		IsLatest:    latest,
@@ -423,6 +476,8 @@ func (s *Server) gistView(r *http.Request, m *store.Meta, rev *store.Revision) *
 	}
 	if token := ownerToken(r, m.ID); store.Authorized(m, token) {
 		g.Owner, g.Token = true, token
+	} else if s.isAdmin(token) {
+		g.Owner = true // moderation: edit and delete, but no edit key to show
 	}
 	for _, f := range rev.Files {
 		anchor := "file-" + render.Slug(f.Name)
@@ -611,7 +666,7 @@ func (s *Server) requireOwner(w http.ResponseWriter, r *http.Request) (*store.Me
 		s.storeError(w, r, err)
 		return nil, false
 	}
-	if !store.Authorized(m, ownerToken(r, m.ID)) {
+	if !s.authorized(m, ownerToken(r, m.ID)) {
 		if wantsHTML(r) && r.Method == http.MethodGet {
 			http.Redirect(w, r, gistPath(m.ID)+"/claim", http.StatusSeeOther)
 		} else {
@@ -633,7 +688,7 @@ func (s *Server) editForm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	f := s.emptyForm()
-	f.Editing, f.ID, f.Description, f.Files = true, m.ID, rev.Description, rev.Files
+	f.Editing, f.ID, f.Description, f.Files, f.Public = true, m.ID, rev.Description, rev.Files, m.Public
 	s.render(w, r, "new", pageData{Title: "Edit gist", Form: f})
 }
 
@@ -654,6 +709,10 @@ func (s *Server) edit(w http.ResponseWriter, r *http.Request) {
 	desc, files, err := store.Normalize(f.Description, f.Files, s.cfg.Limits)
 	if err == nil {
 		_, err = s.store.Update(m.ID, desc, files)
+	}
+	if err == nil {
+		// Visibility is not part of a revision, as on GitHub.
+		_, err = s.store.SetPublic(m.ID, f.Public)
 	}
 	if err != nil {
 		if store.IsValidation(err) && wantsHTML(r) {
@@ -691,7 +750,8 @@ func (s *Server) fork(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	s.createAndRespond(w, r, rev.Description, "", rev.Files, m.ID)
+	// A fork keeps its source's visibility, as on GitHub.
+	s.createAndRespond(w, r, upload{description: rev.Description, files: rev.Files, forkOf: m.ID, public: m.Public})
 }
 
 func (s *Server) claimForm(w http.ResponseWriter, r *http.Request) {
@@ -714,7 +774,7 @@ func (s *Server) claim(w http.ResponseWriter, r *http.Request) {
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 4<<10)
 	key := strings.TrimSpace(r.PostFormValue("key"))
-	if !store.Authorized(m, key) {
+	if !s.authorized(m, key) {
 		s.renderStatus(w, r, http.StatusForbidden, "claim", pageData{
 			Title: "Enter edit key",
 			Claim: &claimData{ID: m.ID, Error: "That key doesn't match this gist."},

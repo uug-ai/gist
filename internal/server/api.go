@@ -22,6 +22,8 @@ type apiGistIn struct {
 	Description *string               `json:"description"`
 	Files       map[string]*apiFileIn `json:"files"`
 	ExpiresIn   string                `json:"expires_in"`
+	// Public lists the gist on Discover; false or absent keeps it secret.
+	Public *bool `json:"public"`
 }
 
 type apiFileOut struct {
@@ -42,6 +44,7 @@ type apiGistOut struct {
 	UpdatedAt   time.Time             `json:"updated_at"`
 	ExpiresAt   *time.Time            `json:"expires_at"`
 	ForkOf      string                `json:"fork_of,omitempty"`
+	Public      bool                  `json:"public"`
 	Files       map[string]apiFileOut `json:"files"`
 	EditKey     string                `json:"edit_key,omitempty"`
 }
@@ -58,6 +61,7 @@ func (s *Server) apiOut(r *http.Request, m *store.Meta, rev *store.Revision) api
 		UpdatedAt:   m.UpdatedAt,
 		ExpiresAt:   m.ExpiresAt,
 		ForkOf:      m.ForkOf,
+		Public:      m.Public,
 		Files:       map[string]apiFileOut{},
 	}
 	for _, f := range rev.Files {
@@ -149,7 +153,9 @@ func (s *Server) apiCreate(w http.ResponseWriter, r *http.Request) {
 		s.apiStoreError(w, err)
 		return
 	}
-	m, token, err := s.store.Create(store.CreateInput{Description: desc, Files: files, ExpiresIn: expiresIn})
+	m, token, err := s.store.Create(store.CreateInput{
+		Description: desc, Files: files, ExpiresIn: expiresIn, Public: in.Public != nil && *in.Public,
+	})
 	if err != nil {
 		s.apiStoreError(w, err)
 		return
@@ -180,7 +186,7 @@ func (s *Server) apiOwner(w http.ResponseWriter, r *http.Request) (*store.Meta, 
 		s.apiStoreError(w, err)
 		return nil, false
 	}
-	if !store.Authorized(m, ownerToken(r, m.ID)) {
+	if !s.authorized(m, ownerToken(r, m.ID)) {
 		apiError(w, http.StatusForbidden, "Send the gist's edit key as Authorization: Bearer <key>")
 		return nil, false
 	}
@@ -265,6 +271,12 @@ func (s *Server) apiUpdate(w http.ResponseWriter, r *http.Request) {
 	if m, err = s.store.Update(m.ID, desc, list); err != nil {
 		s.apiStoreError(w, err)
 		return
+	}
+	if in.Public != nil {
+		if m, err = s.store.SetPublic(m.ID, *in.Public); err != nil {
+			s.apiStoreError(w, err)
+			return
+		}
 	}
 	if rev, err = s.store.Revision(m.ID, m.Latest()); err != nil {
 		s.apiStoreError(w, err)

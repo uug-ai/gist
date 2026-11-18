@@ -97,7 +97,7 @@ func TestWebFlow(t *testing.T) {
 	c := browser(t)
 
 	resp, body := do(t, c, "GET", ts.URL+"/", "", nil, true)
-	if resp.StatusCode != 200 || !strings.Contains(body, "Create gist") {
+	if resp.StatusCode != 200 || !strings.Contains(body, "Create secret gist") {
 		t.Fatalf("home: %d", resp.StatusCode)
 	}
 	if csp := resp.Header.Get("Content-Security-Policy"); !strings.Contains(csp, "script-src 'self'") {
@@ -349,6 +349,146 @@ func TestAPI(t *testing.T) {
 	resp, _ = do(t, c, "GET", ts.URL+"/api/v1/gists/"+out.ID, "", nil, false)
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("get after delete: %d", resp.StatusCode)
+	}
+}
+
+func TestSecretAndPublic(t *testing.T) {
+	ts, st := newTestServer(t, Config{})
+	c := browser(t)
+	create := func(visibility, content string) string {
+		t.Helper()
+		v := url.Values{"filename": {"a.go"}, "content": {content}}
+		if visibility != "" {
+			v.Set("visibility", visibility)
+		}
+		resp, _ := do(t, c, "POST", ts.URL+"/", formType, form(v), true)
+		if resp.StatusCode != http.StatusSeeOther {
+			t.Fatalf("create %s: %d", visibility, resp.StatusCode)
+		}
+		return strings.TrimSuffix(strings.TrimPrefix(resp.Header.Get("Location"), "/"), "?created=1")
+	}
+	secret := create("secret", "package secretone\n")
+	unset := create("", "package unset\n") // Ctrl+Enter: no button, so secret
+	public := create("public", "package publicone\n")
+
+	for id, want := range map[string]bool{secret: false, unset: false, public: true} {
+		m, _ := st.Get(id)
+		if m.Public != want {
+			t.Errorf("%s public=%v, want %v", id, m.Public, want)
+		}
+	}
+
+	// Discover lists only the public gist.
+	resp, body := do(t, c, "GET", ts.URL+"/discover", "", nil, true)
+	if resp.StatusCode != 200 || !strings.Contains(body, "/"+public) || strings.Contains(body, secret) || strings.Contains(body, unset) {
+		t.Fatalf("discover: %d", resp.StatusCode)
+	}
+	if resp.Header.Get("X-Robots-Tag") != "" || strings.Contains(body, `name="robots"`) {
+		t.Error("discover should be indexable")
+	}
+
+	// Secret pages are noindex; the public one isn't, but its old revisions are.
+	resp, body = do(t, c, "GET", ts.URL+"/"+secret, "", nil, true)
+	if resp.Header.Get("X-Robots-Tag") == "" || !strings.Contains(body, `name="robots"`) || !strings.Contains(body, "Secret</span>") {
+		t.Error("secret gist page must be noindex and say Secret")
+	}
+	resp, body = do(t, c, "GET", ts.URL+"/"+public, "", nil, true)
+	if resp.Header.Get("X-Robots-Tag") != "" || strings.Contains(body, `name="robots"`) || !strings.Contains(body, "Public</span>") {
+		t.Error("public gist page must be indexable and say Public")
+	}
+	resp, _ = do(t, c, "GET", ts.URL+"/"+public+"/revisions/1", "", nil, true)
+	if resp.Header.Get("X-Robots-Tag") == "" {
+		t.Error("a revision page must stay noindex")
+	}
+
+	// The owner makes the public gist secret: off Discover, no new revision.
+	resp, _ = do(t, c, "POST", ts.URL+"/"+public+"/edit", formType, form(url.Values{
+		"filename": {"a.go"}, "content": {"package publicone\n"}, "visibility": {"secret"},
+	}), true)
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("edit: %d", resp.StatusCode)
+	}
+	if m, _ := st.Get(public); m.Public || m.Latest() != 1 {
+		t.Fatalf("after making it secret: public=%v latest=%d", m.Public, m.Latest())
+	}
+	_, body = do(t, c, "GET", ts.URL+"/discover", "", nil, true)
+	if strings.Contains(body, "/"+public) || !strings.Contains(body, "No public gists yet") {
+		t.Error("discover still lists a secret gist")
+	}
+
+	// Forks keep the visibility of their source.
+	st.SetPublic(public, true)
+	resp, _ = do(t, browser(t), "POST", ts.URL+"/"+public+"/fork", formType, nil, true)
+	fork := strings.TrimSuffix(strings.TrimPrefix(resp.Header.Get("Location"), "/"), "?created=1")
+	if m, err := st.Get(fork); err != nil || !m.Public {
+		t.Fatalf("fork of a public gist: %v %+v", err, m)
+	}
+}
+
+func TestPublicFromTerminalAndAPI(t *testing.T) {
+	ts, st := newTestServer(t, Config{})
+	c := http.DefaultClient
+
+	_, body := do(t, c, "PUT", ts.URL+"/a.txt?public=true", "", strings.NewReader("x"), false)
+	if m, _ := st.Get(strings.TrimPrefix(strings.TrimSpace(body), ts.URL+"/")); m == nil || !m.Public {
+		t.Error("PUT ?public=true should create a public gist")
+	}
+	_, body = do(t, c, "PUT", ts.URL+"/a.txt", "", strings.NewReader("x"), false)
+	if m, _ := st.Get(strings.TrimPrefix(strings.TrimSpace(body), ts.URL+"/")); m == nil || m.Public {
+		t.Error("terminal uploads are secret by default")
+	}
+
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	w, _ := mw.CreateFormFile("file", "b.txt")
+	io.WriteString(w, "y")
+	mw.WriteField("public", "true")
+	mw.Close()
+	_, body = do(t, c, "POST", ts.URL+"/", mw.FormDataContentType(), &buf, false)
+	if m, _ := st.Get(strings.TrimPrefix(strings.TrimSpace(body), ts.URL+"/")); m == nil || !m.Public {
+		t.Error("curl -F public=true should create a public gist")
+	}
+
+	resp, body := do(t, c, "POST", ts.URL+"/api/v1/gists", "application/json",
+		strings.NewReader(`{"public":true,"files":{"a.txt":{"content":"A"}}}`), false)
+	var out apiGistOut
+	json.Unmarshal([]byte(body), &out)
+	if resp.StatusCode != 201 || !out.Public {
+		t.Fatalf("API create public: %d %s", resp.StatusCode, body)
+	}
+	req, _ := http.NewRequest("PATCH", ts.URL+"/api/v1/gists/"+out.ID, strings.NewReader(`{"public":false}`))
+	req.Header.Set("Authorization", "Bearer "+out.EditKey)
+	resp, err := c.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	json.NewDecoder(resp.Body).Decode(&out)
+	resp.Body.Close()
+	if resp.StatusCode != 200 || out.Public || out.Revision != 1 {
+		t.Fatalf("API make secret: %d public=%v revision=%d", resp.StatusCode, out.Public, out.Revision)
+	}
+}
+
+func TestAdminToken(t *testing.T) {
+	admin := strings.Repeat("a", 40)
+	ts, st := newTestServer(t, Config{AdminToken: admin})
+	m, _, _ := st.Create(store.CreateInput{Files: []store.File{{Name: "spam", Content: "spam"}}, Public: true})
+
+	req, _ := http.NewRequest("DELETE", ts.URL+"/api/v1/gists/"+m.ID, nil)
+	req.Header.Set("Authorization", "Bearer "+strings.Repeat("b", 40))
+	resp, _ := http.DefaultClient.Do(req)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("wrong admin token: %d", resp.StatusCode)
+	}
+	req.Header.Set("Authorization", "Bearer "+admin)
+	resp, _ = http.DefaultClient.Do(req)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("admin delete: %d", resp.StatusCode)
+	}
+	if _, err := New(Config{AdminToken: "short"}, store.NewMemory(store.Options{})); err == nil {
+		t.Error("a short admin token must be refused")
 	}
 }
 

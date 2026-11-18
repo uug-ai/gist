@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="robots" content="noindex, nofollow">
+{{if not .Indexable}}<meta name="robots" content="noindex, nofollow">
+{{end}}
 <meta name="description" content="Share code and text snippets in one click.">
 <title>{{if .Title}}{{.Title}} · {{end}}gist.uug.ai</title>
 <link rel="icon" href="/favicon.ico" sizes="any">
@@ -21,6 +22,7 @@
   <div class="topbar-inner">
     <a class="brand" href="https://uug.ai" aria-label="UUG.AI">UUG<span>Gist</span></a>
     <nav class="topbar-nav" aria-label="Page">
+      <a href="/discover">Discover</a>
       <a href="/#yours" data-yours-link hidden>Your gists</a>
       <a href="/#terminal">Terminal</a>
       <a href="/#api">API</a>
@@ -45,7 +47,7 @@
 <footer class="footer">
   <div class="footer-inner">
     <span class="brand small">UUG</span>
-    <span>Gist is a free snippet service by <a href="https://uug.ai">UUG.AI</a>. Gists are unlisted: only people with the link can see them.</span>
+    <span>Gist is a free snippet service by <a href="https://uug.ai">UUG.AI</a>. Secret gists are only visible to people with the link; public gists are listed on Discover.</span>
     <a href="https://uug.ai/privacy/">Privacy</a>
     <a href="https://github.com/uug-ai/gist">GitHub</a>
     {{if .Version}}<span class="footer-version">{{.Version}}</span>{{end}}
