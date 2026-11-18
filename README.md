@@ -93,7 +93,8 @@ static assets, API).
    namespace `uug-ai`).
 
 Staging loads the [inspect](https://inspect.uug.ai) bug report tool
-(`static/inspect-loader.js` checks the hostname; production never loads it).
+(`static/inspect-loader.js` checks the hostname; production never loads it, and
+only uug.lol hosts get the looser Content-Security-Policy it needs).
 Its reports become issues in uug-ai/gist, which are public since the repo is.
 
 Gists live on a Longhorn volume (`gist-data`) mounted at `/data`, so the
