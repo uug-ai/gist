@@ -99,16 +99,39 @@ func Markdown(content string) template.HTML {
 }
 
 // CSS is the stylesheet for highlighted code: GitHub's light style, and
-// GitHub dark when the browser prefers a dark scheme.
+// GitHub dark when the page is in dark mode (data-theme="dark" on <html>,
+// set by the theme toggle, as on draw.uug.ai).
 func CSS() string {
 	var light, dark bytes.Buffer
 	f := chromahtml.New(chromahtml.WithClasses(true), chromahtml.WithLineNumbers(true))
 	_ = f.WriteCSS(&light, styles.Get("github"))
 	_ = f.WriteCSS(&dark, styles.Get("github-dark"))
-	// Each style only in its own scheme, so a token one style colours and the
+	// Each style only in its own theme, so a token one style colours and the
 	// other doesn't never mixes the two.
-	return "@media not (prefers-color-scheme: dark) {\n" + light.String() + "}\n" +
-		"@media (prefers-color-scheme: dark) {\n" + dark.String() + "}\n"
+	return scopeCSS(light.String(), ":root:not([data-theme='dark'])") +
+		scopeCSS(dark.String(), ":root[data-theme='dark']")
+}
+
+// scopeCSS prefixes every selector of chroma's stylesheet, which has one
+// "/* Name */ selector { … }" rule per line, with scope.
+func scopeCSS(css, scope string) string {
+	var b strings.Builder
+	for _, line := range strings.Split(css, "\n") {
+		brace := strings.Index(line, "{")
+		if brace < 0 {
+			continue
+		}
+		head, body := line[:brace], line[brace:]
+		if end := strings.Index(head, "*/"); end >= 0 {
+			head = head[end+2:]
+		}
+		selectors := strings.Split(head, ",")
+		for i, s := range selectors {
+			selectors[i] = scope + " " + strings.TrimSpace(s)
+		}
+		b.WriteString(strings.Join(selectors, ", ") + " " + body + "\n")
+	}
+	return b.String()
 }
 
 // Slug turns a filename into an anchor-safe slug, as GitHub does for
