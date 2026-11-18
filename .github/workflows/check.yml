@@ -1,0 +1,45 @@
+name: Check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.11"
+          cache-dependency-path: go.sum
+      - name: Formatting, vet and race tests
+        run: |
+          test -z "$(gofmt -l .)"
+          go vet ./...
+          go test -race ./...
+      - run: go build -o /dev/null .
+      - run: go run . --self-test
+
+  # The same image the release builds, with the hardened smoke test.
+  image:
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - architecture: amd64
+            runner: ubuntu-24.04
+          - architecture: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: docker build --build-arg VERSION=ci -t "gist:${{ matrix.architecture }}" .
+      - name: Smoke test
+        env:
+          RUNTIME_EVIDENCE_DIR: ${{ runner.temp }}/evidence
+        run: bash image/smoke-test.sh "gist:${{ matrix.architecture }}"

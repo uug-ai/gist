@@ -1,0 +1,39 @@
+{{define "content"}}
+{{template "gisthead" .Gist}}
+{{$id := .Gist.ID}}
+<h2 class="section-title">Revisions</h2>
+{{range .Revs}}
+<section class="revision">
+  <header class="revision-head">
+    <a class="rev-number" href="/{{$id}}/revisions/{{.Number}}">Revision {{.Number}}</a>
+    <span class="muted small"><time datetime="{{iso .CreatedAt}}" title="{{iso .CreatedAt}}">{{ago .CreatedAt}}</time></span>
+    <span class="stat"><span class="stat-add">+{{.Added}}</span> <span class="stat-del">−{{.Removed}}</span></span>
+    {{if .DescChanged}}<span class="muted small">description: “{{.Description}}”</span>{{end}}
+  </header>
+  {{range .Files}}
+  <article class="card diff-file">
+    <header class="file-head">
+      <span class="file-name">{{if .OldName}}{{.OldName}} → {{end}}{{.Name}}</span>
+      <span class="badge badge-{{.Status}}">{{.Status}}</span>
+      <span class="spacer"></span>
+      <span class="stat small"><span class="stat-add">+{{.Added}}</span> <span class="stat-del">−{{.Removed}}</span></span>
+    </header>
+    {{if .Hunks}}
+    <div class="diff-scroll">
+    <table class="diff">
+      {{range .Hunks}}
+      <tr class="hunk"><td colspan="3">@@ -{{.OldStart}},{{.OldLines}} +{{.NewStart}},{{.NewLines}} @@</td></tr>
+      {{range .Lines}}
+      <tr class="{{opClass .Op}}"><td class="ln">{{lineNo .OldNo}}</td><td class="ln">{{lineNo .NewNo}}</td><td class="tx"><span class="sign">{{opSign .Op}}</span>{{.Text}}</td></tr>
+      {{end}}
+      {{end}}
+    </table>
+    </div>
+    {{end}}
+  </article>
+  {{else}}
+  <p class="muted small">Only the description changed.</p>
+  {{end}}
+</section>
+{{end}}
+{{end}}

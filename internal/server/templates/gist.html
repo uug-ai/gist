@@ -1,0 +1,42 @@
+{{define "content"}}{{with .Gist}}
+{{template "gisthead" .}}
+
+{{if .Created}}
+<div class="notice notice-success" role="status">
+  <strong>Your gist is ready.</strong> Anyone with the link can see it:
+  <code class="share-url">{{.URL}}</code>
+  <button type="button" class="btn btn-ghost btn-sm" data-copy-text="{{.URL}}" data-copied="Copied">Copy</button>
+</div>
+{{end}}
+
+{{if not .IsLatest}}
+<div class="notice notice-info">You're viewing revision {{.Rev}} of {{.Latest}}. <a href="/{{.ID}}">See the latest version</a>.</div>
+{{end}}
+
+{{$g := .}}
+{{range .Files}}
+<article class="card file" id="{{.Anchor}}">
+  <header class="file-head">
+    <a class="file-name" href="#{{.Anchor}}">{{.Name}}</a>
+    <span class="muted small file-meta">{{.Language}} · {{plural .Lines "line" "lines"}} · {{.Size}}</span>
+    <span class="spacer"></span>
+    <button type="button" class="btn btn-ghost btn-sm" data-copy-raw="{{.RawURL}}" data-copied="Copied">Copy</button>
+    <a class="btn btn-ghost btn-sm" href="{{.RawURL}}">Raw</a>
+  </header>
+  {{if .Markdown}}<div class="markdown-body">{{.HTML}}</div>{{else}}<div class="code">{{.HTML}}</div>{{end}}
+</article>
+{{end}}
+
+{{if .Owner}}
+<details class="card owner">
+  <summary>Edit key</summary>
+  <p class="muted small">This browser can edit and delete this gist. To do that from somewhere else, keep this key and enter it on the gist's edit page, or send it as <code>Authorization: Bearer …</code> to the API. Anyone with the key can change the gist.</p>
+  <div class="key-row">
+    <code class="key">{{.Token}}</code>
+    <button type="button" class="btn btn-ghost btn-sm" data-copy-text="{{.Token}}" data-copied="Copied">Copy</button>
+  </div>
+</details>
+{{else}}
+<p class="muted small owner-hint">Is this your gist? <a href="/{{.ID}}/claim">Enter its edit key</a> to change it.</p>
+{{end}}
+{{end}}{{end}}

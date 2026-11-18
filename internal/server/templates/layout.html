@@ -1,0 +1,41 @@
+{{define "layout"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="description" content="Share code and text snippets in one click.">
+<title>{{if .Title}}{{.Title}} · {{end}}gist.uug.ai</title>
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="/-/assets/favicon-32x32.png?v={{.Assets}}">
+<link rel="apple-touch-icon" href="/-/assets/apple-touch-icon.png?v={{.Assets}}">
+<link rel="stylesheet" href="/-/assets/style.css?v={{.Assets}}">
+<link rel="stylesheet" href="/-/assets/chroma.css?v={{.Assets}}">
+<script src="/-/assets/app.js?v={{.Assets}}" defer></script>
+</head>
+<body data-page="{{.Page}}">
+<header class="site-header">
+  <div class="wrap header-row">
+    <a class="brand" href="/" aria-label="gist.uug.ai home">
+      <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8"/><path d="M11 10 5.5 16 11 22M21 10l5.5 6-5.5 6M18 8l-4 16" fill="none" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span class="brand-name">gist<span class="brand-domain">.uug.ai</span></span>
+    </a>
+    <nav class="header-nav">
+      <a href="/#yours" class="nav-link" data-yours-link hidden>Your gists</a>
+      <a href="/#api" class="nav-link">API</a>
+      <a href="/" class="btn btn-primary btn-sm">New gist</a>
+    </nav>
+  </div>
+</header>
+<main class="wrap main">
+{{template "content" .}}
+</main>
+<footer class="site-footer">
+  <div class="wrap footer-row">
+    <span>gist.uug.ai · share snippets in one click</span>
+    <span>Gists are unlisted: only people with the link can see them.</span>
+    <span><a href="https://uug.ai" rel="noopener">UUG.AI</a>{{if .Version}} · {{.Version}}{{end}}</span>
+  </div>
+</footer>
+</body>
+</html>{{end}}

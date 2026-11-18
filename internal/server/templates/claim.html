@@ -1,0 +1,11 @@
+{{define "content"}}{{with .Claim}}
+<section class="narrow">
+  <h1>Enter the edit key</h1>
+  <p class="muted">Only the person who created <a href="/{{.ID}}">this gist</a> has its edit key. It was saved in the browser that created the gist, under <em>Edit key</em> on the gist's page.</p>
+  {{if .Error}}<div class="notice notice-danger" role="alert">{{.Error}}</div>{{end}}
+  <form method="post" action="/{{.ID}}/claim" class="claim-form">
+    <input class="input" type="password" name="key" required autocomplete="off" spellcheck="false" placeholder="Edit key" aria-label="Edit key" autofocus>
+    <button type="submit" class="btn btn-primary">Continue</button>
+  </form>
+</section>
+{{end}}{{end}}

@@ -1,0 +1,72 @@
+name: Bump release
+
+# Builds and publishes ghcr.io/uug-ai/gist (hardened, signed, amd64 + arm64)
+# and opens a gitops pull request that deploys it to staging (gist.uug.lol).
+# Production (gist.uug.ai) is promoted with a separate gitops pull request.
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Which part of the version to bump
+        required: true
+        default: patch
+        type: choice
+        options:
+          - major
+          - minor
+          - patch
+      existing_tag:
+        description: Existing release to retry (empty creates the next version)
+        type: string
+        default: ""
+      publish:
+        description: Publish after verification (false validates without creating a version)
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+
+jobs:
+  # Keep the release draft until the shared verification gates pass.
+  bump-release:
+    if: inputs.publish && inputs.existing_tag == ''
+    uses: uug-ai/workflows/.github/workflows/release-bump.yml@main
+    with:
+      bump: ${{ inputs.bump }}
+      draft: true
+    secrets: inherit
+
+  # A release created with the default GITHUB_TOKEN does not emit the
+  # `release: created` event, so the release pipeline is called directly.
+  release:
+    needs: bump-release
+    if: ${{ always() && !cancelled() && (needs.bump-release.result == 'success' || needs.bump-release.result == 'skipped') }}
+    uses: uug-ai/workflows/.github/workflows/release-create.yml@main
+    with:
+      organization: uug-ai
+      project: gist
+      tag: ${{ inputs.existing_tag || needs.bump-release.outputs.tag }}
+      sign: true
+      docker_context: "."
+      hardened: true
+      # Long-running HTTP service; image/smoke-test.sh checks it offline.
+      hardened_profile: standalone
+      hardened_workdir: /app
+      artifact_prefix: gist
+      publish: ${{ inputs.publish }}
+      finalize_release: true
+      use_private_module_auth: false
+      runner_matrix: >-
+        [
+          {"architecture":"amd64","runner":"ubuntu-24.04"},
+          {"architecture":"arm64","runner":"ubuntu-24.04-arm"}
+        ]
+      create_gitops_pr: ${{ inputs.publish }}
+      gitops_repo: uug-ai/gitops
+      gitops_file: environments/staging/gist/deployment.yaml
+      gitops_key: .spec.template.spec.containers[0].image
+      gitops_value: ghcr.io/uug-ai/gist:${{ inputs.existing_tag || needs.bump-release.outputs.tag }}
+    secrets: inherit

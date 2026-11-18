@@ -1,0 +1,103 @@
+{{define "content"}}{{with .Form}}
+{{if not .Editing}}
+<section class="hero">
+  <h1>Share a snippet</h1>
+  <p class="muted">Paste code or text, press <strong>Create gist</strong> and share the link. No account needed.</p>
+</section>
+{{else}}
+<section class="hero">
+  <h1>Edit gist</h1>
+  <p class="muted">Saving creates a new revision; earlier ones stay available.</p>
+</section>
+{{end}}
+
+{{if .Error}}<div class="notice notice-danger" role="alert">{{.Error}}</div>{{end}}
+
+<form method="post" action="{{if .Editing}}/{{.ID}}/edit{{else}}/{{end}}" class="gist-form" data-gist-form data-max-files="{{.MaxFiles}}">
+  <input class="input description" type="text" name="description" value="{{.Description}}"
+         placeholder="Gist description…" maxlength="1000" aria-label="Gist description" autocomplete="off">
+
+  <div class="files" data-files>
+    {{range $i, $f := .Files}}
+    <div class="file-editor card" data-file>
+      <div class="file-editor-head">
+        <input class="input filename" type="text" name="filename" value="{{$f.Name}}"
+               placeholder="Filename including extension…" maxlength="100" aria-label="Filename" autocomplete="off" spellcheck="false">
+        <span class="lang-hint" data-lang-hint></span>
+        <button type="button" class="btn btn-ghost btn-sm" data-remove-file title="Remove this file">Remove</button>
+      </div>
+      <textarea class="code-input" name="content" rows="18" spellcheck="false" autocapitalize="off" autocomplete="off"
+                aria-label="File contents" placeholder="Paste or type your code…"{{if eq $i 0}} autofocus{{end}}>{{$f.Content}}</textarea>
+    </div>
+    {{end}}
+  </div>
+
+  <div class="form-actions">
+    <button type="button" class="btn btn-secondary" data-add-file>Add file</button>
+    <span class="spacer"></span>
+    {{if not .Editing}}
+    <label class="expiry">
+      <span class="muted">Expires</span>
+      <select name="expires" class="input select">
+        <option value=""{{if eq .Expires ""}} selected{{end}}>Never</option>
+        <option value="1h"{{if eq .Expires "1h"}} selected{{end}}>In 1 hour</option>
+        <option value="1d"{{if eq .Expires "1d"}} selected{{end}}>In 1 day</option>
+        <option value="1w"{{if eq .Expires "1w"}} selected{{end}}>In 1 week</option>
+        <option value="30d"{{if eq .Expires "30d"}} selected{{end}}>In 30 days</option>
+      </select>
+    </label>
+    <button type="submit" class="btn btn-primary">Create gist</button>
+    {{else}}
+    <a class="btn btn-ghost" href="/{{.ID}}">Cancel</a>
+    <button type="submit" class="btn btn-primary">Update gist</button>
+    {{end}}
+  </div>
+  <p class="hint muted">Up to {{.MaxFiles}} files and {{.MaxSize}} in total. Tab indents; press Esc, then Tab, to move on.</p>
+</form>
+
+<template data-file-template>
+  <div class="file-editor card" data-file>
+    <div class="file-editor-head">
+      <input class="input filename" type="text" name="filename" placeholder="Filename including extension…" maxlength="100" aria-label="Filename" autocomplete="off" spellcheck="false">
+      <span class="lang-hint" data-lang-hint></span>
+      <button type="button" class="btn btn-ghost btn-sm" data-remove-file title="Remove this file">Remove</button>
+    </div>
+    <textarea class="code-input" name="content" rows="18" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="File contents" placeholder="Paste or type your code…"></textarea>
+  </div>
+</template>
+
+{{if not .Editing}}
+<section class="yours" id="yours" data-yours hidden>
+  <h2>Your gists</h2>
+  <p class="muted small">Gists you created in this browser.</p>
+  <ul class="yours-list" data-yours-list></ul>
+</section>
+
+<section class="api" id="api">
+  <h2>From your terminal</h2>
+  <div class="api-grid">
+    <div class="card api-card">
+      <h3>Share a file</h3>
+<pre><code>curl -T main.go {{$.Base}}</code></pre>
+    </div>
+    <div class="card api-card">
+      <h3>Share command output</h3>
+<pre><code>make test 2&gt;&amp;1 | curl -T - "{{$.Base}}/?filename=test.log"</code></pre>
+    </div>
+    <div class="card api-card">
+      <h3>Several files, with a description</h3>
+<pre><code>curl -F file=@main.go -F file=@go.mod \
+     -F description="Repro for #42" -F expires=1w {{$.Base}}</code></pre>
+    </div>
+    <div class="card api-card">
+      <h3>JSON API</h3>
+<pre><code>curl {{$.Base}}/api/v1/gists -d '{
+  "description": "Hello",
+  "files": {"hello.py": {"content": "print(\"hi\")"}}
+}'</code></pre>
+    </div>
+  </div>
+  <p class="muted small">Terminal uploads print the gist's URL. The <code>Gist-Edit-Key</code> response header (<code>curl -i</code>), or <code>edit_key</code> in JSON, lets you change it later with <code>PATCH</code> or <code>DELETE /api/v1/gists/&lt;id&gt;</code> and <code>Authorization: Bearer &lt;key&gt;</code>. <code>curl {{$.Base}}/&lt;id&gt;</code> prints a single-file gist.</p>
+</section>
+{{end}}
+{{end}}{{end}}

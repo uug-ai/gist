@@ -1,0 +1,29 @@
+{{define "gisthead"}}
+<section class="gist-head" data-gist-id="{{.ID}}" data-gist-title="{{.Title}}" {{if .Owner}}data-owner{{end}}>
+  <div class="gist-title-row">
+    <div class="gist-title">
+      <h1>{{if .Description}}{{.Description}}{{else}}{{.Title}}{{end}}</h1>
+      <p class="meta muted">
+        Created <time datetime="{{iso .CreatedAt}}" title="{{iso .CreatedAt}}">{{ago .CreatedAt}}</time>
+        {{if ne .Latest 1}} · updated <time datetime="{{iso .UpdatedAt}}" title="{{iso .UpdatedAt}}">{{ago .UpdatedAt}}</time>{{end}}
+        · <a href="/{{.ID}}/revisions">{{plural .Latest "revision" "revisions"}}</a>
+        {{if .ForkOf}} · forked from <a href="/{{.ForkOf}}">{{short .ForkOf}}</a>{{end}}
+        {{with .ExpiresAt}} · <span class="badge badge-warning">expires <time datetime="{{iso .}}" title="{{iso .}}">{{until .}}</time></span>{{end}}
+      </p>
+    </div>
+    <div class="gist-actions">
+      {{if .Owner}}
+      <a class="btn btn-secondary btn-sm" href="/{{.ID}}/edit">Edit</a>
+      <form method="post" action="/{{.ID}}/delete" data-confirm="Delete this gist and all its revisions? This can't be undone." data-forget="{{.ID}}">
+        <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+      </form>
+      {{end}}
+      <form method="post" action="/{{.ID}}/fork">
+        <button type="submit" class="btn btn-secondary btn-sm" title="Make your own copy">Fork</button>
+      </form>
+      <a class="btn btn-secondary btn-sm" href="{{.ArchiveURL}}">Download ZIP</a>
+      <button type="button" class="btn btn-primary btn-sm" data-copy-text="{{.URL}}" data-copied="Link copied">Copy link</button>
+    </div>
+  </div>
+</section>
+{{end}}
