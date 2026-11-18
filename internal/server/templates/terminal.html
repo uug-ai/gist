@@ -1,0 +1,110 @@
+{{define "content"}}
+<section class="hero">
+  <h1>Terminal and API</h1>
+  <p class="muted">Share from the command line with <code>curl</code>, or script gist.uug.ai with its JSON API. Every gist is secret: only people with its link can see it.</p>
+</section>
+
+<nav class="toc" aria-label="On this page">
+  <a href="#terminal">From your terminal</a>
+  <a href="#edit-key">Edit key</a>
+  <a href="#api">JSON API</a>
+</nav>
+
+<section class="doc-section" id="terminal">
+  <h2>From your terminal</h2>
+  <div class="api-grid">
+    <div class="card api-card">
+      <h3>Share a file</h3>
+<pre><code>curl -T main.go {{.Base}}</code></pre>
+      <p class="muted small">Prints the gist's link. The filename picks the highlighting.</p>
+    </div>
+    <div class="card api-card">
+      <h3>Share command output</h3>
+<pre><code>make test 2&gt;&amp;1 |
+  curl -T - "{{.Base}}/?filename=test.log"</code></pre>
+      <p class="muted small"><code>-T -</code> reads standard input; <code>filename</code> names the file.</p>
+    </div>
+    <div class="card api-card">
+      <h3>Several files, a description and an expiry</h3>
+<pre><code>curl -F file=@main.go -F file=@go.mod \
+     -F description="Repro for #42" \
+     -F expires=1w {{.Base}}</code></pre>
+      <p class="muted small"><code>expires</code>: <code>1h</code>, <code>1d</code>, <code>1w</code> or <code>30d</code>; leave it out to keep the gist.</p>
+    </div>
+    <div class="card api-card">
+      <h3>Read a gist</h3>
+<pre><code># a single-file gist
+curl {{.Base}}/&lt;id&gt;
+# one file of a gist
+curl {{.Base}}/&lt;id&gt;/raw/main.go
+# every file, as a ZIP
+curl -O {{.Base}}/&lt;id&gt;/archive.zip</code></pre>
+    </div>
+  </div>
+</section>
+
+<section class="doc-section" id="edit-key">
+  <h2>Edit key</h2>
+  <p>Whoever creates a gist gets its <strong>edit key</strong>: it is needed to change or delete the gist. Browsers keep it in a cookie for that gist. From a terminal, it's in the <code>Gist-Edit-Key</code> response header:</p>
+<pre class="card doc-pre"><code>curl -i -T main.go {{.Base}}
+# HTTP/2 201
+# gist-edit-key: 3u1V…
+# location: {{.Base}}/&lt;id&gt;</code></pre>
+  <p class="muted small">Keep the key private: anyone with it can change the gist. Send it as <code>Authorization: Bearer &lt;key&gt;</code>, or enter it on the gist's page under <em>Enter its edit key</em>.</p>
+</section>
+
+<section class="doc-section" id="api">
+  <h2>JSON API</h2>
+  <p>Shaped like GitHub's gist API: <code>files</code> is an object keyed by filename.</p>
+  <div class="card doc-table-wrap">
+    <table class="doc-table">
+      <thead><tr><th>Request</th><th>What it does</th></tr></thead>
+      <tbody>
+        <tr><td><code>POST /api/v1/gists</code></td><td>Create a gist. The response includes <code>edit_key</code>.</td></tr>
+        <tr><td><code>GET /api/v1/gists/&lt;id&gt;</code></td><td>Read the latest revision, with file contents.</td></tr>
+        <tr><td><code>PATCH /api/v1/gists/&lt;id&gt;</code></td><td>Change the description or files: a new revision. Needs the edit key.</td></tr>
+        <tr><td><code>DELETE /api/v1/gists/&lt;id&gt;</code></td><td>Delete the gist and all its revisions. Needs the edit key.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="api-grid">
+    <div class="card api-card">
+      <h3>Create</h3>
+<pre><code>curl {{.Base}}/api/v1/gists \
+  -d '{
+  "description": "Hello",
+  "expires_in": "1d",
+  "files": {
+    "hello.py": {"content": "print(\"hi\")"}
+  }
+}'</code></pre>
+    </div>
+    <div class="card api-card">
+      <h3>Edit: change, rename and delete files</h3>
+<pre><code>curl -X PATCH {{.Base}}/api/v1/gists/&lt;id&gt; \
+  -H "Authorization: Bearer &lt;key&gt;" \
+  -d '{
+  "files": {
+    "hello.py": {"content": "print(\"hello\")"},
+    "old.txt":  {"filename": "new.txt"},
+    "gone.txt": null
+  }
+}'</code></pre>
+    </div>
+    <div class="card api-card">
+      <h3>Delete</h3>
+<pre><code>curl -X DELETE {{.Base}}/api/v1/gists/&lt;id&gt; \
+  -H "Authorization: Bearer &lt;key&gt;"</code></pre>
+    </div>
+    <div class="card api-card">
+      <h3>Limits</h3>
+      <ul class="doc-list muted small">
+        <li>Up to {{.Form.MaxFiles}} files and {{.Form.MaxSize}} per revision, UTF-8 text only.</li>
+        <li>A limited number of changes per minute per client; too many get <code>429</code>.</li>
+        <li>GitHub's <code>"public": true</code> is refused: every gist is secret.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+{{end}}

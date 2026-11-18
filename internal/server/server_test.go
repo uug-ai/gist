@@ -352,90 +352,52 @@ func TestAPI(t *testing.T) {
 	}
 }
 
-func TestSecretAndPublic(t *testing.T) {
-	ts, st := newTestServer(t, Config{})
+func TestEveryGistIsSecret(t *testing.T) {
+	ts, _ := newTestServer(t, Config{})
 	c := browser(t)
-	create := func(visibility, content string) string {
-		t.Helper()
-		v := url.Values{"filename": {"a.go"}, "content": {content}}
-		if visibility != "" {
-			v.Set("visibility", visibility)
-		}
-		resp, _ := do(t, c, "POST", ts.URL+"/", formType, form(v), true)
-		if resp.StatusCode != http.StatusSeeOther {
-			t.Fatalf("create %s: %d", visibility, resp.StatusCode)
-		}
-		return strings.TrimSuffix(strings.TrimPrefix(resp.Header.Get("Location"), "/"), "?created=1")
-	}
-	secret := create("secret", "package secretone\n")
-	unset := create("", "package unset\n") // Ctrl+Enter: no button, so secret
-	public := create("public", "package publicone\n")
+	resp, _ := do(t, c, "POST", ts.URL+"/", formType, form(url.Values{"filename": {"a.go"}, "content": {"package a\n"}}), true)
+	id := strings.TrimSuffix(strings.TrimPrefix(resp.Header.Get("Location"), "/"), "?created=1")
 
-	for id, want := range map[string]bool{secret: false, unset: false, public: true} {
-		m, _ := st.Get(id)
-		if m.Public != want {
-			t.Errorf("%s public=%v, want %v", id, m.Public, want)
+	for _, path := range []string{"/" + id, "/" + id + "/revisions", "/" + id + "/revisions/1"} {
+		resp, body := do(t, c, "GET", ts.URL+path, "", nil, true)
+		if resp.Header.Get("X-Robots-Tag") == "" || !strings.Contains(body, `name="robots"`) {
+			t.Errorf("%s must be noindex", path)
+		}
+		if path == "/"+id && !strings.Contains(body, "Secret</span>") {
+			t.Error("the gist page must say Secret")
 		}
 	}
-
-	// Discover lists only the public gist.
-	resp, body := do(t, c, "GET", ts.URL+"/discover", "", nil, true)
-	if resp.StatusCode != 200 || !strings.Contains(body, "/"+public) || strings.Contains(body, secret) || strings.Contains(body, unset) {
-		t.Fatalf("discover: %d", resp.StatusCode)
+	// The home and terminal pages may be indexed; there is no Discover.
+	for _, path := range []string{"/", "/terminal"} {
+		resp, body := do(t, c, "GET", ts.URL+path, "", nil, true)
+		if resp.StatusCode != 200 || resp.Header.Get("X-Robots-Tag") != "" || strings.Contains(body, `name="robots"`) {
+			t.Errorf("%s: %d, should be indexable", path, resp.StatusCode)
+		}
 	}
-	if resp.Header.Get("X-Robots-Tag") != "" || strings.Contains(body, `name="robots"`) {
-		t.Error("discover should be indexable")
+	if resp, _ := do(t, c, "GET", ts.URL+"/discover", "", nil, true); resp.StatusCode != http.StatusNotFound {
+		t.Errorf("/discover: %d", resp.StatusCode)
 	}
-
-	// Secret pages are noindex; the public one isn't, but its old revisions are.
-	resp, body = do(t, c, "GET", ts.URL+"/"+secret, "", nil, true)
-	if resp.Header.Get("X-Robots-Tag") == "" || !strings.Contains(body, `name="robots"`) || !strings.Contains(body, "Secret</span>") {
-		t.Error("secret gist page must be noindex and say Secret")
+	_, body := do(t, c, "GET", ts.URL+"/", "", nil, true)
+	for _, gone := range []string{"Create public gist", "Your gists", "From your terminal", "/discover"} {
+		if strings.Contains(body, gone) {
+			t.Errorf("home page still shows %q", gone)
+		}
 	}
-	resp, body = do(t, c, "GET", ts.URL+"/"+public, "", nil, true)
-	if resp.Header.Get("X-Robots-Tag") != "" || strings.Contains(body, `name="robots"`) || !strings.Contains(body, "Public</span>") {
-		t.Error("public gist page must be indexable and say Public")
-	}
-	resp, _ = do(t, c, "GET", ts.URL+"/"+public+"/revisions/1", "", nil, true)
-	if resp.Header.Get("X-Robots-Tag") == "" {
-		t.Error("a revision page must stay noindex")
-	}
-
-	// The owner makes the public gist secret: off Discover, no new revision.
-	resp, _ = do(t, c, "POST", ts.URL+"/"+public+"/edit", formType, form(url.Values{
-		"filename": {"a.go"}, "content": {"package publicone\n"}, "visibility": {"secret"},
-	}), true)
-	if resp.StatusCode != http.StatusSeeOther {
-		t.Fatalf("edit: %d", resp.StatusCode)
-	}
-	if m, _ := st.Get(public); m.Public || m.Latest() != 1 {
-		t.Fatalf("after making it secret: public=%v latest=%d", m.Public, m.Latest())
-	}
-	_, body = do(t, c, "GET", ts.URL+"/discover", "", nil, true)
-	if strings.Contains(body, "/"+public) || !strings.Contains(body, "No public gists yet") {
-		t.Error("discover still lists a secret gist")
-	}
-
-	// Forks keep the visibility of their source.
-	st.SetPublic(public, true)
-	resp, _ = do(t, browser(t), "POST", ts.URL+"/"+public+"/fork", formType, nil, true)
-	fork := strings.TrimSuffix(strings.TrimPrefix(resp.Header.Get("Location"), "/"), "?created=1")
-	if m, err := st.Get(fork); err != nil || !m.Public {
-		t.Fatalf("fork of a public gist: %v %+v", err, m)
+	_, body = do(t, c, "GET", ts.URL+"/terminal", "", nil, true)
+	for _, want := range []string{"curl -T main.go", "Gist-Edit-Key", "/api/v1/gists", `id="api"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("terminal page lacks %q", want)
+		}
 	}
 }
 
-func TestPublicFromTerminalAndAPI(t *testing.T) {
+func TestPublicIsRefused(t *testing.T) {
 	ts, st := newTestServer(t, Config{})
 	c := http.DefaultClient
 
-	_, body := do(t, c, "PUT", ts.URL+"/a.txt?public=true", "", strings.NewReader("x"), false)
-	if m, _ := st.Get(strings.TrimPrefix(strings.TrimSpace(body), ts.URL+"/")); m == nil || !m.Public {
-		t.Error("PUT ?public=true should create a public gist")
-	}
-	_, body = do(t, c, "PUT", ts.URL+"/a.txt", "", strings.NewReader("x"), false)
-	if m, _ := st.Get(strings.TrimPrefix(strings.TrimSpace(body), ts.URL+"/")); m == nil || m.Public {
-		t.Error("terminal uploads are secret by default")
+	resp, body := do(t, c, "PUT", ts.URL+"/a.txt?public=true", "", strings.NewReader("x"), false)
+	if resp.StatusCode != http.StatusBadRequest || !strings.Contains(body, "secret") {
+		t.Errorf("PUT ?public=true: %d %q", resp.StatusCode, body)
 	}
 
 	var buf bytes.Buffer
@@ -444,35 +406,48 @@ func TestPublicFromTerminalAndAPI(t *testing.T) {
 	io.WriteString(w, "y")
 	mw.WriteField("public", "true")
 	mw.Close()
-	_, body = do(t, c, "POST", ts.URL+"/", mw.FormDataContentType(), &buf, false)
-	if m, _ := st.Get(strings.TrimPrefix(strings.TrimSpace(body), ts.URL+"/")); m == nil || !m.Public {
-		t.Error("curl -F public=true should create a public gist")
+	if resp, _ := do(t, c, "POST", ts.URL+"/", mw.FormDataContentType(), &buf, false); resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("curl -F public=true: %d", resp.StatusCode)
+	}
+	if resp, _ := do(t, c, "POST", ts.URL+"/", formType, form(url.Values{"filename": {"a"}, "content": {"b"}, "public": {"1"}}), false); resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("curl -d public=1: %d", resp.StatusCode)
 	}
 
-	resp, body := do(t, c, "POST", ts.URL+"/api/v1/gists", "application/json",
+	resp, body = do(t, c, "POST", ts.URL+"/api/v1/gists", "application/json",
 		strings.NewReader(`{"public":true,"files":{"a.txt":{"content":"A"}}}`), false)
+	if resp.StatusCode != http.StatusUnprocessableEntity {
+		t.Fatalf("API public:true: %d %s", resp.StatusCode, body)
+	}
+	// GitHub clients that send "public": false still work.
+	resp, body = do(t, c, "POST", ts.URL+"/api/v1/gists", "application/json",
+		strings.NewReader(`{"public":false,"files":{"a.txt":{"content":"A"}}}`), false)
 	var out apiGistOut
 	json.Unmarshal([]byte(body), &out)
-	if resp.StatusCode != 201 || !out.Public {
-		t.Fatalf("API create public: %d %s", resp.StatusCode, body)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("API public:false: %d %s", resp.StatusCode, body)
 	}
-	req, _ := http.NewRequest("PATCH", ts.URL+"/api/v1/gists/"+out.ID, strings.NewReader(`{"public":false}`))
+	req, _ := http.NewRequest("PATCH", ts.URL+"/api/v1/gists/"+out.ID, strings.NewReader(`{"public":true}`))
 	req.Header.Set("Authorization", "Bearer "+out.EditKey)
 	resp, err := c.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
-	json.NewDecoder(resp.Body).Decode(&out)
 	resp.Body.Close()
-	if resp.StatusCode != 200 || out.Public || out.Revision != 1 {
-		t.Fatalf("API make secret: %d public=%v revision=%d", resp.StatusCode, out.Public, out.Revision)
+	if resp.StatusCode != http.StatusUnprocessableEntity {
+		t.Fatalf("API PATCH public:true: %d", resp.StatusCode)
+	}
+	if strings.Contains(body, `"public"`) {
+		t.Error("API responses no longer carry a public field")
+	}
+	if _, err := st.Get(out.ID); err != nil {
+		t.Fatal(err)
 	}
 }
 
 func TestAdminToken(t *testing.T) {
 	admin := strings.Repeat("a", 40)
 	ts, st := newTestServer(t, Config{AdminToken: admin})
-	m, _, _ := st.Create(store.CreateInput{Files: []store.File{{Name: "spam", Content: "spam"}}, Public: true})
+	m, _, _ := st.Create(store.CreateInput{Files: []store.File{{Name: "spam", Content: "spam"}}})
 
 	req, _ := http.NewRequest("DELETE", ts.URL+"/api/v1/gists/"+m.ID, nil)
 	req.Header.Set("Authorization", "Bearer "+strings.Repeat("b", 40))

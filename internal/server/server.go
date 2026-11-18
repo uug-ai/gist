@@ -39,7 +39,7 @@ type Config struct {
 	// TrustProxy reads the client address from X-Real-IP / X-Forwarded-For.
 	TrustProxy bool
 	// AdminToken, when set, works as the edit key of every gist, so abusive
-	// public gists can be taken down. It must be at least 32 characters.
+	// gists reported by link can be taken down. It must be at least 32 characters.
 	AdminToken string
 	Version    string
 	Logger     *slog.Logger
@@ -104,7 +104,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /-/assets/{path...}", s.asset)
 
 	mux.HandleFunc("GET /{$}", s.newGist)
-	mux.HandleFunc("GET /discover", s.discover)
+	mux.HandleFunc("GET /terminal", s.terminal)
 	mux.HandleFunc("POST /{$}", s.create)
 	mux.HandleFunc("PUT /{$}", s.put)
 	mux.HandleFunc("PUT /{name}", s.put)
@@ -182,18 +182,11 @@ func (s *Server) healthz(w http.ResponseWriter, _ *http.Request) {
 	fmt.Fprintln(w, "ok")
 }
 
-// robots lets crawlers reach Discover and public gists. Secret gists are only
-// linked from where their owners share them, and their pages say noindex.
+// robots lets crawlers see the home and terminal pages only. Every gist is
+// secret; their pages also say noindex.
 func (s *Server) robots(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	fmt.Fprint(w, `User-agent: *
-Disallow: /api/
-Disallow: /*/raw/
-Disallow: /*/revisions
-Disallow: /*/archive.zip
-Disallow: /*/edit
-Disallow: /*/claim
-`)
+	fmt.Fprint(w, "User-agent: *\nAllow: /$\nAllow: /terminal$\nDisallow: /\n")
 }
 
 // authorized reports whether token may change the gist: its edit key, or
