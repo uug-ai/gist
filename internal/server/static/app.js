@@ -2,27 +2,6 @@
 (function () {
   "use strict";
 
-  var STORE_KEY = "gist.uug.ai/yours";
-
-  function readYours() {
-    try {
-      var list = JSON.parse(localStorage.getItem(STORE_KEY) || "[]");
-      return Array.isArray(list) ? list : [];
-    } catch (e) {
-      return [];
-    }
-  }
-
-  function writeYours(list) {
-    try {
-      localStorage.setItem(STORE_KEY, JSON.stringify(list.slice(0, 50)));
-    } catch (e) { /* storage unavailable */ }
-  }
-
-  function forget(id) {
-    writeYours(readYours().filter(function (g) { return g.id !== id; }));
-  }
-
   // Copy buttons -----------------------------------------------------------
   function flash(button) {
     var label = button.textContent;
@@ -68,10 +47,7 @@
     var question = form.getAttribute("data-confirm");
     if (question && !window.confirm(question)) {
       event.preventDefault();
-      return;
     }
-    var id = form.getAttribute("data-forget");
-    if (id) forget(id);
   });
 
   // Highlight the line in the URL fragment (#file-x-L12) -------------------
@@ -87,44 +63,6 @@
     if (line) line.classList.add("is-target");
   }
   window.addEventListener("hashchange", markTarget);
-
-  // Gist page: remember gists this browser owns ----------------------------
-  function rememberOwned() {
-    var head = document.querySelector("[data-gist-id][data-owner]");
-    if (!head) return;
-    var id = head.getAttribute("data-gist-id");
-    var list = readYours().filter(function (g) { return g.id !== id; });
-    list.unshift({ id: id, title: head.getAttribute("data-gist-title") || id, at: new Date().toISOString() });
-    writeYours(list);
-  }
-
-  // New gist page: list them -------------------------------------------------
-  function showYours() {
-    var deleted = new URLSearchParams(location.search).get("deleted");
-    if (deleted) {
-      forget(deleted);
-      history.replaceState(null, "", "/");
-    }
-    var list = readYours();
-    var link = document.querySelector("[data-yours-link]");
-    if (link && list.length) link.hidden = false;
-    var section = document.querySelector("[data-yours]");
-    var ul = document.querySelector("[data-yours-list]");
-    if (!section || !ul || !list.length) return;
-    list.forEach(function (g) {
-      var li = document.createElement("li");
-      var a = document.createElement("a");
-      a.href = "/" + g.id;
-      a.textContent = g.title;
-      var time = document.createElement("time");
-      time.dateTime = g.at;
-      time.textContent = new Date(g.at).toLocaleDateString();
-      li.appendChild(a);
-      li.appendChild(time);
-      ul.appendChild(li);
-    });
-    section.hidden = false;
-  }
 
   // Editor: add/remove files, tab indentation, language hint ----------------
   var LANGS = {
@@ -244,12 +182,6 @@
     setupThemeToggle();
     var form = document.querySelector("[data-gist-form]");
     if (form) setupEditor(form);
-    if (document.body.getAttribute("data-page") === "new") showYours();
-    else if (readYours().length) {
-      var link = document.querySelector("[data-yours-link]");
-      if (link) link.hidden = false;
-    }
-    rememberOwned();
     markTarget();
   });
 })();

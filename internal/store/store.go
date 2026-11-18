@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"io/fs"
 	"regexp"
-	"sort"
 	"sync"
 	"time"
 )
@@ -38,14 +37,6 @@ type Store struct {
 	quota        int64
 	maxRevisions int
 	now          func() time.Time
-	// public indexes the public gists for Discover without reading every
-	// gist's metadata on each request.
-	public map[string]publicEntry
-}
-
-type publicEntry struct {
-	created time.Time
-	expires *time.Time
 }
 
 // Options configure a Store.
@@ -75,7 +66,7 @@ func NewMemory(o Options) *Store {
 }
 
 func newStore(b backend, o Options) (*Store, error) {
-	s := &Store{b: b, quota: o.Quota, maxRevisions: o.MaxRevisions, now: o.Now, public: map[string]publicEntry{}}
+	s := &Store{b: b, quota: o.Quota, maxRevisions: o.MaxRevisions, now: o.Now}
 	if s.maxRevisions == 0 {
 		s.maxRevisions = 100
 	}
@@ -92,18 +83,8 @@ func newStore(b backend, o Options) (*Store, error) {
 			continue // half-written gist; Sweep doesn't touch it either
 		}
 		s.usage += m.Bytes
-		s.index(m)
 	}
 	return s, nil
-}
-
-// index adds a public gist to the Discover index, or removes a secret one.
-func (s *Store) index(m *Meta) {
-	if m.Public {
-		s.public[m.ID] = publicEntry{created: m.CreatedAt, expires: m.ExpiresAt}
-	} else {
-		delete(s.public, m.ID)
-	}
 }
 
 // Usage is the number of content bytes stored.
@@ -120,7 +101,6 @@ type CreateInput struct {
 	Files       []File
 	ExpiresIn   time.Duration
 	ForkOf      string
-	Public      bool
 }
 
 // Create stores a new gist and returns it with its edit key.
@@ -152,7 +132,6 @@ func (s *Store) Create(in CreateInput) (*Meta, string, error) {
 		CreatedAt:   now,
 		UpdatedAt:   now,
 		ForkOf:      in.ForkOf,
-		Public:      in.Public,
 		TokenHash:   hash,
 		Revisions:   []RevInfo{{Number: 1, CreatedAt: now, Bytes: size}},
 		Bytes:       size,
@@ -171,7 +150,6 @@ func (s *Store) Create(in CreateInput) (*Meta, string, error) {
 		return nil, "", err
 	}
 	s.usage += size
-	s.index(m)
 	return m, token, nil
 }
 
@@ -285,71 +263,7 @@ func (s *Store) Delete(id string) error {
 		return err
 	}
 	s.usage -= m.Bytes
-	delete(s.public, id)
 	return nil
-}
-
-// SetPublic makes a gist public or secret. It doesn't add a revision.
-func (s *Store) SetPublic(id string, public bool) (*Meta, error) {
-	if !ValidID(id) {
-		return nil, ErrNotFound
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	m, err := s.readMeta(id)
-	if err != nil {
-		return nil, err
-	}
-	if m.Expired(s.now()) {
-		return nil, ErrNotFound
-	}
-	if m.Public == public {
-		return m, nil
-	}
-	m.Public = public
-	if err := s.writeJSON(id, "meta.json", m); err != nil {
-		return nil, err
-	}
-	s.index(m)
-	return m, nil
-}
-
-// PublicIDs returns a page of public gists, newest first, and how many
-// public gists there are.
-func (s *Store) PublicIDs(offset, limit int) ([]string, int) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	now := s.now()
-	type item struct {
-		id      string
-		created time.Time
-	}
-	items := make([]item, 0, len(s.public))
-	for id, e := range s.public {
-		if e.expires != nil && !now.Before(*e.expires) {
-			continue
-		}
-		items = append(items, item{id, e.created})
-	}
-	sort.Slice(items, func(i, j int) bool {
-		if !items[i].created.Equal(items[j].created) {
-			return items[i].created.After(items[j].created)
-		}
-		return items[i].id < items[j].id
-	})
-	total := len(items)
-	if offset >= total {
-		return nil, total
-	}
-	end := offset + limit
-	if end > total {
-		end = total
-	}
-	ids := make([]string, 0, end-offset)
-	for _, it := range items[offset:end] {
-		ids = append(ids, it.id)
-	}
-	return ids, total
 }
 
 // Sweep deletes expired gists and returns how many it deleted.
@@ -370,7 +284,6 @@ func (s *Store) Sweep() (int, error) {
 			return n, err
 		}
 		s.usage -= m.Bytes
-		delete(s.public, id)
 		n++
 	}
 	return n, nil

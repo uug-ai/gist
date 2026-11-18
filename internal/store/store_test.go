@@ -168,68 +168,6 @@ func TestQuotaAndRevisionLimit(t *testing.T) {
 	}
 }
 
-func TestPublicIndex(t *testing.T) {
-	dir := t.TempDir()
-	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	clock := func() time.Time { return now }
-	s, err := Open(dir, Options{Now: clock})
-	if err != nil {
-		t.Fatal(err)
-	}
-	create := func(public bool, expires time.Duration) *Meta {
-		t.Helper()
-		m, _, err := s.Create(CreateInput{Files: []File{{Name: "a", Content: "x"}}, Public: public, ExpiresIn: expires})
-		if err != nil {
-			t.Fatal(err)
-		}
-		now = now.Add(time.Minute) // distinct creation times
-		return m
-	}
-	older := create(true, 0)
-	secret := create(false, 0)
-	newer := create(true, 0)
-	expiring := create(true, time.Hour)
-
-	ids, total := s.PublicIDs(0, 10)
-	if total != 3 || len(ids) != 3 || ids[0] != expiring.ID || ids[1] != newer.ID || ids[2] != older.ID {
-		t.Fatalf("public ids %v (total %d)", ids, total)
-	}
-	if ids, total := s.PublicIDs(1, 1); total != 3 || len(ids) != 1 || ids[0] != newer.ID {
-		t.Fatalf("second page %v", ids)
-	}
-	if ids, _ := s.PublicIDs(5, 10); len(ids) != 0 {
-		t.Fatalf("page past the end %v", ids)
-	}
-
-	// The index is rebuilt from disk.
-	s, err = Open(dir, Options{Now: clock})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, total := s.PublicIDs(0, 10); total != 3 {
-		t.Fatalf("after reopen: %d public", total)
-	}
-
-	// Visibility changes, deletes and expiry update it.
-	if m, err := s.SetPublic(secret.ID, true); err != nil || !m.Public {
-		t.Fatalf("make public: %v", err)
-	}
-	if _, err := s.SetPublic(older.ID, false); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.Delete(newer.ID); err != nil {
-		t.Fatal(err)
-	}
-	now = now.Add(2 * time.Hour)
-	ids, total = s.PublicIDs(0, 10)
-	if total != 1 || ids[0] != secret.ID {
-		t.Fatalf("after changes %v (total %d)", ids, total)
-	}
-	if m, _ := s.Get(older.ID); m.Public || m.Latest() != 1 {
-		t.Fatalf("making it secret must not add a revision: %+v", m)
-	}
-}
-
 func TestInvalidIDs(t *testing.T) {
 	s := NewMemory(Options{})
 	for _, id := range []string{"", "../etc", "ABCDEF0123456789ABCDEF0123456789", strings.Repeat("a", 33)} {

@@ -1,8 +1,8 @@
 # gist.uug.ai
 
 Share code and text snippets in one click, in the spirit of GitHub Gist.
-Paste, create the gist, share the link. No account needed. Gists are secret
-unless you make them public.
+Paste, create a secret gist, share the link. No account needed. Every gist is
+secret: never listed or indexed, only visible to people with its link.
 
 - **Production:** https://gist.uug.ai
 - **Staging:** https://gist.uug.lol
@@ -11,14 +11,14 @@ unless you make them public.
 ## Features
 
 - Gists with a description and up to 20 files (1 MiB in total).
-- **Secret** (default) or **public**, as on GitHub: secret gists are only
-  reachable by their unguessable link and never indexed; public gists are
-  listed on [Discover](https://gist.uug.ai/discover).
+- Every gist is **secret**, like GitHub's secret gists. There are no public
+  gists and no Discover page, by design.
 - Syntax highlighting for 250+ languages, rendered Markdown, line numbers and
   line links (`#file-main-go-L12`), light and dark.
 - Edit with revisions and diffs, delete, fork, download as ZIP, raw files.
 - Optional expiry: 1 hour, 1 day, 1 week or 30 days.
-- Terminal uploads and a JSON API shaped like GitHub's.
+- Terminal uploads and a JSON API shaped like GitHub's, documented on
+  [/terminal](https://gist.uug.ai/terminal).
 
 Ownership works with an **edit key**: creating a gist sets it as a cookie in
 your browser (scoped to that gist) and shows it under *Edit key* on the gist's
@@ -31,7 +31,6 @@ curl -T main.go https://gist.uug.ai                         # share a file
 make test 2>&1 | curl -T - "https://gist.uug.ai/?filename=test.log"
 curl -F file=@main.go -F file=@go.mod \
      -F description="Repro for #42" -F expires=1w https://gist.uug.ai
-curl -F file=@main.go -F public=true https://gist.uug.ai    # a public gist
 curl https://gist.uug.ai/<id>                               # print a single-file gist
 ```
 
@@ -42,14 +41,14 @@ header.
 
 | Method and path | |
 |---|---|
-| `POST /api/v1/gists` | Create. Body: `{"description": "", "public": false, "files": {"a.py": {"content": "…"}}, "expires_in": "1d"}`. The response includes `edit_key`. |
+| `POST /api/v1/gists` | Create. Body: `{"description": "", "files": {"a.py": {"content": "…"}}, "expires_in": "1d"}`. The response includes `edit_key`. `"public": true` is refused. |
 | `GET /api/v1/gists/{id}` | Read the latest revision with file contents. |
-| `PATCH /api/v1/gists/{id}` | Change the description, files and visibility, like GitHub: `{"public": true, "files": {"old.txt": {"filename": "new.txt"}, "gone.txt": null}}`. |
+| `PATCH /api/v1/gists/{id}` | Change the description and files, like GitHub: `{"files": {"old.txt": {"filename": "new.txt"}, "gone.txt": null}}`. |
 | `DELETE /api/v1/gists/{id}` | Delete the gist with all its revisions. |
 
 `PATCH` and `DELETE` need `Authorization: Bearer <edit key>`.
 
-Other routes: `/discover`, `/{id}`, `/{id}/raw/{file}`, `/{id}/revisions`,
+Other routes: `/terminal` (these instructions), `/{id}`, `/{id}/raw/{file}`, `/{id}/revisions`,
 `/{id}/revisions/{n}`, `/{id}/revisions/{n}/raw/{file}`, `/{id}/archive.zip`.
 
 ## Configuration
@@ -65,7 +64,7 @@ Other routes: `/discover`, `/{id}`, `/{id}/raw/{file}`, `/{id}/revisions`,
 | `GIST_MAX_FILES` | `20` | Most files per gist. |
 | `GIST_MAX_REVISIONS` | `100` | Most revisions per gist. |
 | `GIST_STORE_QUOTA_BYTES` | `4294967296` | Total size of all gists and revisions. |
-| `GIST_ADMIN_TOKEN` | unset | Optional, at least 32 characters: works as the edit key of every gist, to take down abusive public gists. |
+| `GIST_ADMIN_TOKEN` | unset | Optional, at least 32 characters: works as the edit key of every gist, to take down an abusive gist reported by link. |
 
 ## Development
 

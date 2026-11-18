@@ -33,11 +33,8 @@ type Meta struct {
 	UpdatedAt   time.Time  `json:"updated_at"`
 	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
 	ForkOf      string     `json:"fork_of,omitempty"`
-	// Public gists are listed on Discover and may be indexed by search
-	// engines. Secret gists (the default) are only reachable by their link.
-	Public    bool      `json:"public,omitempty"`
-	TokenHash string    `json:"token_hash"`
-	Revisions []RevInfo `json:"revisions"`
+	TokenHash   string     `json:"token_hash"`
+	Revisions   []RevInfo  `json:"revisions"`
 	// Bytes is the size of all revisions together, counted against the quota.
 	Bytes int64 `json:"bytes"`
 }

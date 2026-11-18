@@ -26,15 +26,14 @@ type pageData struct {
 	Assets  string
 	Version string
 	Page    string
-	// Indexable pages may appear in search results: the home page,
-	// Discover and the latest version of a public gist.
+	// Indexable pages may appear in search results: the home page and the
+	// terminal page. Gists never do: every gist is secret.
 	Indexable bool
 
-	Form     *formData
-	Gist     *gistView
-	Revs     []revView
-	Claim    *claimData
-	Discover *discoverData
+	Form  *formData
+	Gist  *gistView
+	Revs  []revView
+	Claim *claimData
 }
 
 type formData struct {
@@ -42,7 +41,6 @@ type formData struct {
 	ID          string
 	Description string
 	Expires     string
-	Public      bool
 	Files       []store.File
 	Error       string
 	MaxFiles    int
@@ -58,7 +56,6 @@ type gistView struct {
 	UpdatedAt   time.Time
 	ExpiresAt   *time.Time
 	ForkOf      string
-	Public      bool
 	Rev         int
 	Latest      int
 	IsLatest    bool
@@ -173,7 +170,7 @@ func plural(n int, unit string) string {
 
 func parseTemplates() (map[string]*template.Template, error) {
 	pages := map[string]*template.Template{}
-	for _, name := range []string{"new", "gist", "revisions", "claim", "error", "discover"} {
+	for _, name := range []string{"new", "gist", "revisions", "claim", "error", "terminal"} {
 		t, err := template.New(name).Funcs(funcs).ParseFS(templateFS, "templates/layout.html", "templates/partials.html", "templates/"+name+".html")
 		if err != nil {
 			return nil, err
@@ -214,7 +211,13 @@ func (s *Server) emptyForm() *formData {
 
 func (s *Server) newGist(w http.ResponseWriter, r *http.Request) {
 	w.Header().Del("X-Robots-Tag")
-	s.render(w, r, "new", pageData{Title: "New gist", Form: s.emptyForm(), Indexable: true})
+	s.render(w, r, "new", pageData{Title: "New secret gist", Form: s.emptyForm(), Indexable: true})
+}
+
+// terminal explains uploading from a terminal and the JSON API.
+func (s *Server) terminal(w http.ResponseWriter, r *http.Request) {
+	w.Header().Del("X-Robots-Tag")
+	s.render(w, r, "terminal", pageData{Title: "Terminal and API", Form: s.emptyForm(), Indexable: true})
 }
 
 // readForm reads the web form: description, expires and parallel filename
@@ -227,7 +230,6 @@ func (s *Server) readForm(w http.ResponseWriter, r *http.Request) (*formData, er
 	f := s.emptyForm()
 	f.Description = r.PostForm.Get("description")
 	f.Expires = r.PostForm.Get("expires")
-	f.Public = isPublic(r.PostForm)
 	names, contents := r.PostForm["filename"], r.PostForm["content"]
 	f.Files = nil
 	for i, c := range contents {
@@ -243,14 +245,13 @@ func (s *Server) readForm(w http.ResponseWriter, r *http.Request) (*formData, er
 	return f, nil
 }
 
-// isPublic reads the visibility a client asked for: the web form's
-// visibility=public button, or public=true from curl and scripts. Anything
-// else is secret, the default.
-func isPublic(v url.Values) bool {
-	if v.Get("visibility") == "public" {
-		return true
-	}
-	switch strings.ToLower(v.Get("public")) {
+// errPublic answers clients that ask for a public gist (public=true, as
+// GitHub's API allows): gist.uug.ai never lists or indexes a gist.
+const errPublic = "Public gists are not supported: every gist on gist.uug.ai is secret, only visible to people with its link."
+
+// asksPublic reports whether a client asked for a public gist.
+func asksPublic(v url.Values) bool {
+	switch strings.ToLower(strings.TrimSpace(v.Get("public"))) {
 	case "1", "true", "yes", "on":
 		return true
 	}
@@ -263,7 +264,6 @@ type upload struct {
 	expires     string
 	files       []store.File
 	forkOf      string
-	public      bool
 }
 
 // readUploads reads files sent with curl -F file=@name (multipart).
@@ -296,7 +296,6 @@ func (s *Server) readUploads(w http.ResponseWriter, r *http.Request) (upload, er
 		description: r.FormValue("description"),
 		expires:     r.FormValue("expires"),
 		files:       files,
-		public:      isPublic(r.MultipartForm.Value),
 	}, nil
 }
 
@@ -311,6 +310,10 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request) {
 			s.fail(w, r, http.StatusBadRequest, err.Error())
 			return
 		}
+		if asksPublic(r.MultipartForm.Value) {
+			s.fail(w, r, http.StatusBadRequest, errPublic)
+			return
+		}
 		s.createAndRespond(w, r, u)
 		return
 	}
@@ -319,8 +322,12 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, http.StatusRequestEntityTooLarge, err.Error())
 		return
 	}
+	if asksPublic(r.PostForm) {
+		s.fail(w, r, http.StatusBadRequest, errPublic)
+		return
+	}
 	if !wantsHTML(r) {
-		s.createAndRespond(w, r, upload{description: f.Description, expires: f.Expires, files: f.Files, public: f.Public})
+		s.createAndRespond(w, r, upload{description: f.Description, expires: f.Expires, files: f.Files})
 		return
 	}
 	expiresIn, err := parseExpiry(f.Expires)
@@ -339,7 +346,7 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request) {
 		s.storeError(w, r, err)
 		return
 	}
-	m, token, err := s.store.Create(store.CreateInput{Description: desc, Files: files, ExpiresIn: expiresIn, Public: f.Public})
+	m, token, err := s.store.Create(store.CreateInput{Description: desc, Files: files, ExpiresIn: expiresIn})
 	if err != nil {
 		s.storeError(w, r, err)
 		return
@@ -362,7 +369,7 @@ func (s *Server) createAndRespond(w http.ResponseWriter, r *http.Request, u uplo
 		return
 	}
 	m, token, err := s.store.Create(store.CreateInput{
-		Description: desc, Files: files, ExpiresIn: expiresIn, ForkOf: u.forkOf, Public: u.public,
+		Description: desc, Files: files, ExpiresIn: expiresIn, ForkOf: u.forkOf,
 	})
 	if err != nil {
 		s.storeError(w, r, err)
@@ -398,6 +405,10 @@ func (s *Server) put(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q := r.URL.Query()
+	if asksPublic(q) {
+		s.fail(w, r, http.StatusBadRequest, errPublic)
+		return
+	}
 	if n := q.Get("filename"); n != "" {
 		name = n
 	}
@@ -405,7 +416,6 @@ func (s *Server) put(w http.ResponseWriter, r *http.Request) {
 		description: q.Get("description"),
 		expires:     q.Get("expires"),
 		files:       []store.File{{Name: name, Content: string(data)}},
-		public:      isPublic(q),
 	})
 }
 
@@ -444,14 +454,7 @@ func (s *Server) view(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	g := s.gistView(r, m, rev)
-	// Search engines may index a public gist at its own URL; secret gists
-	// and /revisions/N pages (old versions, or duplicates of the latest)
-	// stay out.
-	indexable := m.Public && r.PathValue("rev") == ""
-	if indexable {
-		w.Header().Del("X-Robots-Tag")
-	}
-	s.render(w, r, "gist", pageData{Title: g.Title, Gist: g, Indexable: indexable})
+	s.render(w, r, "gist", pageData{Title: g.Title, Gist: g})
 }
 
 func (s *Server) gistView(r *http.Request, m *store.Meta, rev *store.Revision) *gistView {
@@ -464,7 +467,6 @@ func (s *Server) gistView(r *http.Request, m *store.Meta, rev *store.Revision) *
 		UpdatedAt:   m.UpdatedAt,
 		ExpiresAt:   m.ExpiresAt,
 		ForkOf:      m.ForkOf,
-		Public:      m.Public,
 		Rev:         rev.Number,
 		Latest:      m.Latest(),
 		IsLatest:    latest,
@@ -688,7 +690,7 @@ func (s *Server) editForm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	f := s.emptyForm()
-	f.Editing, f.ID, f.Description, f.Files, f.Public = true, m.ID, rev.Description, rev.Files, m.Public
+	f.Editing, f.ID, f.Description, f.Files = true, m.ID, rev.Description, rev.Files
 	s.render(w, r, "new", pageData{Title: "Edit gist", Form: f})
 }
 
@@ -709,10 +711,6 @@ func (s *Server) edit(w http.ResponseWriter, r *http.Request) {
 	desc, files, err := store.Normalize(f.Description, f.Files, s.cfg.Limits)
 	if err == nil {
 		_, err = s.store.Update(m.ID, desc, files)
-	}
-	if err == nil {
-		// Visibility is not part of a revision, as on GitHub.
-		_, err = s.store.SetPublic(m.ID, f.Public)
 	}
 	if err != nil {
 		if store.IsValidation(err) && wantsHTML(r) {
@@ -739,7 +737,7 @@ func (s *Server) delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.clearOwner(w, r, m.ID)
-	http.Redirect(w, r, "/?deleted="+m.ID, http.StatusSeeOther)
+	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
 func (s *Server) fork(w http.ResponseWriter, r *http.Request) {
@@ -750,8 +748,7 @@ func (s *Server) fork(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	// A fork keeps its source's visibility, as on GitHub.
-	s.createAndRespond(w, r, upload{description: rev.Description, files: rev.Files, forkOf: m.ID, public: m.Public})
+	s.createAndRespond(w, r, upload{description: rev.Description, files: rev.Files, forkOf: m.ID})
 }
 
 func (s *Server) claimForm(w http.ResponseWriter, r *http.Request) {

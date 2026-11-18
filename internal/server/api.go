@@ -22,7 +22,8 @@ type apiGistIn struct {
 	Description *string               `json:"description"`
 	Files       map[string]*apiFileIn `json:"files"`
 	ExpiresIn   string                `json:"expires_in"`
-	// Public lists the gist on Discover; false or absent keeps it secret.
+	// Public is accepted for GitHub API compatibility, but only as false:
+	// every gist is secret.
 	Public *bool `json:"public"`
 }
 
@@ -44,7 +45,6 @@ type apiGistOut struct {
 	UpdatedAt   time.Time             `json:"updated_at"`
 	ExpiresAt   *time.Time            `json:"expires_at"`
 	ForkOf      string                `json:"fork_of,omitempty"`
-	Public      bool                  `json:"public"`
 	Files       map[string]apiFileOut `json:"files"`
 	EditKey     string                `json:"edit_key,omitempty"`
 }
@@ -61,7 +61,6 @@ func (s *Server) apiOut(r *http.Request, m *store.Meta, rev *store.Revision) api
 		UpdatedAt:   m.UpdatedAt,
 		ExpiresAt:   m.ExpiresAt,
 		ForkOf:      m.ForkOf,
-		Public:      m.Public,
 		Files:       map[string]apiFileOut{},
 	}
 	for _, f := range rev.Files {
@@ -123,12 +122,21 @@ func (s *Server) readJSON(w http.ResponseWriter, r *http.Request, v any) bool {
 	return true
 }
 
+// rejectPublic refuses "public": true.
+func rejectPublic(w http.ResponseWriter, in apiGistIn) bool {
+	if in.Public != nil && *in.Public {
+		apiError(w, http.StatusUnprocessableEntity, errPublic)
+		return true
+	}
+	return false
+}
+
 func (s *Server) apiCreate(w http.ResponseWriter, r *http.Request) {
 	if !s.apiAllow(w, r) {
 		return
 	}
 	var in apiGistIn
-	if !s.readJSON(w, r, &in) {
+	if !s.readJSON(w, r, &in) || rejectPublic(w, in) {
 		return
 	}
 	expiresIn, err := parseExpiry(in.ExpiresIn)
@@ -154,7 +162,7 @@ func (s *Server) apiCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	m, token, err := s.store.Create(store.CreateInput{
-		Description: desc, Files: files, ExpiresIn: expiresIn, Public: in.Public != nil && *in.Public,
+		Description: desc, Files: files, ExpiresIn: expiresIn,
 	})
 	if err != nil {
 		s.apiStoreError(w, err)
@@ -202,7 +210,7 @@ func (s *Server) apiUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in apiGistIn
-	if !s.readJSON(w, r, &in) {
+	if !s.readJSON(w, r, &in) || rejectPublic(w, in) {
 		return
 	}
 	if in.ExpiresIn != "" {
@@ -271,12 +279,6 @@ func (s *Server) apiUpdate(w http.ResponseWriter, r *http.Request) {
 	if m, err = s.store.Update(m.ID, desc, list); err != nil {
 		s.apiStoreError(w, err)
 		return
-	}
-	if in.Public != nil {
-		if m, err = s.store.SetPublic(m.ID, *in.Public); err != nil {
-			s.apiStoreError(w, err)
-			return
-		}
 	}
 	if rev, err = s.store.Revision(m.ID, m.Latest()); err != nil {
 		s.apiStoreError(w, err)

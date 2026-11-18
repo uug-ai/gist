@@ -2,7 +2,7 @@
 {{if not .Editing}}
 <section class="hero">
   <h1>Share a snippet</h1>
-  <p class="muted">Paste code or text, create the gist and share the link. No account needed.</p>
+  <p class="muted">Paste code or text, create a secret gist and share the link. No account needed. Prefer the command line? See <a href="/terminal">Terminal and API</a>.</p>
 </section>
 {{else}}
 <section class="hero">
@@ -46,28 +46,15 @@
         <option value="30d"{{if eq .Expires "30d"}} selected{{end}}>In 30 days</option>
       </select>
     </label>
-    <button type="submit" class="btn btn-secondary" name="visibility" value="public"
-            title="Listed on Discover; anyone can find it">{{template "icon-globe"}}Create public gist</button>
-    <button type="submit" class="btn btn-primary" name="visibility" value="secret"
-            title="Not listed; only people with the link can see it">{{template "icon-lock"}}Create secret gist</button>
+    <button type="submit" class="btn btn-primary"
+            title="Only people with the link can see it">{{template "icon-lock"}}Create secret gist</button>
     {{else}}
-    <label class="expiry">
-      <span class="muted">Visibility</span>
-      <select name="visibility" class="input select">
-        <option value="secret"{{if not .Public}} selected{{end}}>Secret</option>
-        <option value="public"{{if .Public}} selected{{end}}>Public</option>
-      </select>
-    </label>
     <a class="btn btn-ghost" href="/{{.ID}}">Cancel</a>
     <button type="submit" class="btn btn-primary">Update gist</button>
     {{end}}
   </div>
-  {{if not .Editing}}
-  <p class="hint muted"><strong>Secret</strong> gists are hidden from Discover and search engines: only people with the link can see them. <strong>Public</strong> gists are listed on <a href="/discover">Discover</a> and can be found by anyone.</p>
-  {{else}}
-  <p class="hint muted">Making a public gist secret takes it off Discover, but copies or search results made while it was public may remain.</p>
-  {{end}}
-  <p class="hint muted">Up to {{.MaxFiles}} files and {{.MaxSize}} in total. Tab indents; press Esc, then Tab, to move on. Ctrl/⌘+Enter creates a secret gist.</p>
+  <p class="hint muted">Every gist is <strong>secret</strong>: it is never listed or indexed by search engines, and only people with its link can see it.</p>
+  <p class="hint muted">Up to {{.MaxFiles}} files and {{.MaxSize}} in total. Tab indents; press Esc, then Tab, to move on. Ctrl/⌘+Enter {{if .Editing}}saves{{else}}creates the gist{{end}}.</p>
 </form>
 
 <template data-file-template>
@@ -81,39 +68,4 @@
   </div>
 </template>
 
-{{if not .Editing}}
-<section class="yours" id="yours" data-yours hidden>
-  <h2>Your gists</h2>
-  <p class="muted small">Gists you created in this browser.</p>
-  <ul class="yours-list" data-yours-list></ul>
-</section>
-
-<section class="api" id="terminal">
-  <h2>From your terminal</h2>
-  <div class="api-grid">
-    <div class="card api-card">
-      <h3>Share a file</h3>
-<pre><code>curl -T main.go {{$.Base}}</code></pre>
-    </div>
-    <div class="card api-card">
-      <h3>Share command output</h3>
-<pre><code>make test 2&gt;&amp;1 | curl -T - "{{$.Base}}/?filename=test.log"</code></pre>
-    </div>
-    <div class="card api-card">
-      <h3>Several files, public, with a description</h3>
-<pre><code>curl -F file=@main.go -F file=@go.mod -F public=true \
-     -F description="Repro for #42" -F expires=1w {{$.Base}}</code></pre>
-    </div>
-    <div class="card api-card" id="api">
-      <h3>JSON API</h3>
-<pre><code>curl {{$.Base}}/api/v1/gists -d '{
-  "description": "Hello",
-  "public": false,
-  "files": {"hello.py": {"content": "print(\"hi\")"}}
-}'</code></pre>
-    </div>
-  </div>
-  <p class="muted small">Gists are secret unless you add <code>public=true</code> (<code>"public": true</code> in JSON). Terminal uploads print the gist's URL. The <code>Gist-Edit-Key</code> response header (<code>curl -i</code>), or <code>edit_key</code> in JSON, lets you change it later with <code>PATCH</code> or <code>DELETE /api/v1/gists/&lt;id&gt;</code> and <code>Authorization: Bearer &lt;key&gt;</code>. <code>curl {{$.Base}}/&lt;id&gt;</code> prints a single-file gist.</p>
-</section>
-{{end}}
 {{end}}{{end}}
