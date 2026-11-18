@@ -150,7 +150,7 @@ p { margin: 0 0 12px; }
 /* Footer (as on draw.uug.ai) */
 .footer { border-top: 1px solid var(--border); }
 .footer-inner { max-width: var(--layout-max-width); margin: auto; padding: 28px var(--layout-gutter); display: flex; align-items: center; gap: 20px; color: var(--muted); font-size: 12px; }
-.footer-inner > span:nth-child(2) { margin-right: auto; }
+.footer-inner > .brand { margin-right: auto; }
 .footer-inner a { color: inherit; }
 .footer-inner a:hover { color: var(--primary); text-decoration: none; }
 .footer-version { font-family: var(--font-mono); font-size: 11px; }
@@ -194,7 +194,7 @@ p { margin: 0 0 12px; }
 .badge-added { background: var(--success-bg); color: var(--success-text); }
 .badge-deleted { background: var(--danger-bg); color: var(--danger-text); }
 .badge-modified, .badge-renamed { background: var(--info-bg); color: var(--info-text); }
-.badge-secret { display: inline-flex; align-items: center; gap: 4px; vertical-align: 1px; margin-right: 4px; border: 1px solid var(--border); background: transparent; color: var(--muted); }
+.badge-secret { display: inline-flex; align-items: center; gap: 4px; vertical-align: middle; line-height: 18px; margin-right: 4px; border: 1px solid var(--border); background: transparent; color: var(--muted); }
 .icon { width: 13px; height: 13px; flex: none; }
 .btn .icon { width: 14px; height: 14px; }
 
@@ -257,7 +257,7 @@ p code { padding: 1px 5px; border-radius: 5px; background: var(--surface-strong)
 /* Chroma output */
 /* The card is the background; chroma's own (scoped by theme, so more specific) would differ. */
 .code .chroma { background: transparent !important; margin: 0; }
-.code .lntable { border-spacing: 0; padding: 8px 0; width: 100%; }
+.code .lntable { border-spacing: 0; padding: 16px 0; width: 100%; }
 .code .lntd { vertical-align: top; padding: 0; }
 .code .lntd:first-child { width: 1%; }
 .code pre { margin: 0; font-size: 13px; line-height: 1.55; tab-size: 4; }
@@ -321,7 +321,6 @@ p code { padding: 1px 5px; border-radius: 5px; background: var(--surface-strong)
   .topbar-inner { gap: 10px; }
   .brand span { display: none; }
   .footer-inner { flex-wrap: wrap; gap: 8px 16px; }
-  .footer-inner > span:nth-child(2) { flex-basis: 100%; order: 5; }
 }
 
 @media (max-width: 640px) {
