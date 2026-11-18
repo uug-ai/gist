@@ -219,7 +219,29 @@
     refresh();
   }
 
+  // Theme toggle (as on draw.uug.ai); theme.js set data-theme before paint.
+  function setupThemeToggle() {
+    var root = document.documentElement;
+    var toggle = document.getElementById("theme-toggle");
+    if (!toggle) return;
+    function sync() {
+      var dark = root.getAttribute("data-theme") === "dark";
+      var label = "Switch to " + (dark ? "light" : "dark") + " mode";
+      toggle.setAttribute("aria-pressed", String(dark));
+      toggle.setAttribute("aria-label", label);
+      toggle.title = label;
+    }
+    toggle.addEventListener("click", function () {
+      var next = root.getAttribute("data-theme") === "dark" ? "light" : "dark";
+      root.setAttribute("data-theme", next);
+      try { localStorage.setItem("gist.theme", next); } catch (e) { /* private browsing */ }
+      sync();
+    });
+    sync();
+  }
+
   document.addEventListener("DOMContentLoaded", function () {
+    setupThemeToggle();
     var form = document.querySelector("[data-gist-form]");
     if (form) setupEditor(form);
     if (document.body.getAttribute("data-page") === "new") showYours();
